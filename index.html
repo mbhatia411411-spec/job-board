@@ -431,7 +431,12 @@ const COLS = [
   ["company","Company",""],["title","Role",""],["seniority","Level",""],
   ["sector","Industry",""],["_state","Loc",""],["_lane","Function",""],
   ["posted_salary_max","Base max",""],["variant","Use resume",""],
-  [null,"Flags",""],["applied","✓",""],["queued","Res",""],[null,"",""],
+  [null,"Flags",""],
+  ["applied","✓","applied"],
+  ["queued","Res","queue a tailored resume"],
+  ["active","Act","actively pursuing"],
+  ["closed","Cls","closed — always sorts to the bottom"],
+  [null,"",""],
 ];
 
 function render(){
