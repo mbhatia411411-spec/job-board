@@ -83,8 +83,8 @@ select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline
 .grow{flex:1} .count{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--ink-3)}
 .tbl{display:flex;flex-direction:column;overflow-x:auto}
 .hd,.row{display:grid;
-  grid-template-columns:34px 50px 44px 74px 124px minmax(260px,1.8fr) 96px 106px 58px 116px 100px 142px 112px 54px 54px 62px;
-  align-items:center;min-width:1520px}
+  grid-template-columns:34px 50px 44px 74px 124px minmax(240px,1.7fr) 92px 100px 56px 110px 96px 134px 100px 50px 50px 50px 50px 58px;
+  align-items:center;min-width:1620px}
 .hd{position:sticky;top:0;z-index:2;background:var(--surface);border-bottom:1.5px solid var(--line)}
 .hd button{font:inherit;font-size:10px;text-transform:uppercase;letter-spacing:.06em;font-weight:600;
   color:var(--ink-3);background:none;border:none;padding:9px 6px;text-align:left;cursor:pointer;width:100%}
@@ -130,7 +130,13 @@ select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline
 .mk.on{background:var(--apply);border-color:var(--apply);color:#fff}
 .mk.res:hover{border-color:var(--accent)}
 .mk.res.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.mk.act:hover{border-color:var(--maybe)} .mk.act.on{background:var(--maybe);border-color:var(--maybe);color:#fff}
+.mk.cls:hover{border-color:var(--ink-3)} .mk.cls.on{background:var(--ink-3);border-color:var(--ink-3);color:#fff}
 .mk.busy{opacity:.45;cursor:progress}
+/* Closed roles stay visible but recede — dimmed, and always sorted last no matter
+   which column is being sorted, so they never displace live work. */
+.row.closed{opacity:.42}
+.row.closed .rank{color:var(--ink-3)!important}
 .mk:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .xbtn{font:inherit;font-size:11px;color:var(--ink-3);background:none;border:1px solid var(--line);
   border-radius:4px;padding:3px 7px;cursor:pointer}
@@ -185,6 +191,7 @@ footer{margin-top:18px;color:var(--ink-3);font-size:12px;display:flex;justify-co
       <div class="stat new"><span class="n" id="s-fresh">–</span><div class="k">fresh ≤7d</div></div>
       <div class="stat done"><span class="n" id="s-applied">–</span><div class="k">applied</div></div>
       <div class="stat queue"><span class="n" id="s-queued">–</span><div class="k">resume queued</div></div>
+      <div class="stat"><span class="n" id="s-active">–</span><div class="k">active</div></div>
     </div>
   </header>
 
@@ -209,8 +216,11 @@ footer{margin-top:18px;color:var(--ink-3);font-size:12px;display:flex;justify-co
       <button class="chip" data-f="apply" aria-pressed="false">≥6.5</button>
       <button class="chip" data-f="flagged" aria-pressed="false">Flagged</button>
       <button class="chip" data-f="open" aria-pressed="false">Not applied</button>
+      <button class="chip" data-f="activeOnly" aria-pressed="false">Active</button>
+      <button class="chip" data-f="hideClosed" aria-pressed="true">Hide closed</button>
       <button class="chip" id="reset">Reset</button>
       <span class="grow"></span>
+      <button class="chip" id="export">Export CSV</button>
       <button class="chip" id="refresh">Refresh</button>
       <span class="count" id="count"></span>
     </div>
@@ -239,6 +249,7 @@ let DATA = null;
 // ticked on load, so the default is "show all" and unticking is how you exclude —
 // which is the only way to express "every industry except banking".
 const F = {q:"", age:0, fresh:false, apply:false, flagged:false, open:false,
+           activeOnly:false, hideClosed:true,
            company:new Set(), sector:new Set(), state:new Set(), sen:new Set(), lane:new Set()};
 const MSELS = [
   {key:"company", id:"m-company", label:"companies", get:r => r.company,     search:true},
@@ -388,6 +399,8 @@ function visible(){
     if (F.apply && r._band !== "apply") return false;
     if (F.flagged && !(r.signals || []).length) return false;
     if (F.open && r.applied) return false;
+    if (F.activeOnly && !r.active) return false;
+    if (F.hideClosed && r.closed) return false;
     return true;
   });
 }
@@ -398,12 +411,16 @@ function sorted(list){
     if (k === "rank_score" || k === "fit_score") return Number(r[k]) || 0;
     if (k === "days_old") return r.days_old === null ? 1e9 : r.days_old;
     if (k === "posted_salary_max") return r.posted_salary_max || 0;
-    if (k === "applied" || k === "queued") return r[k] ? 1 : 0;
+    if (["applied","queued","active","closed"].includes(k)) return r[k] ? 1 : 0;
     if (k === "_state" || k === "_lane") return (r[k] || "").toLowerCase();
     return String(r[k] ?? "").toLowerCase();
   };
-  return [...list].sort((a,b) => { const x = val(a), y = val(b);
-    return (x < y ? -1 : x > y ? 1 : 0) * dir; });
+  return [...list].sort((a,b) => {
+    // closed roles sink to the bottom regardless of the active sort column
+    if (Boolean(a.closed) !== Boolean(b.closed)) return a.closed ? 1 : -1;
+    const x = val(a), y = val(b);
+    return (x < y ? -1 : x > y ? 1 : 0) * dir;
+  });
 }
 
 const COLS = [
@@ -427,6 +444,7 @@ function render(){
   $("s-fresh").textContent = list.filter(r => r.days_old !== null && r.days_old <= 7).length;
   $("s-applied").textContent = list.filter(r => r.applied).length;
   $("s-queued").textContent = list.filter(r => r.queued).length;
+  $("s-active").textContent = list.filter(r => r.active).length;
 
   // a dot marks any column whose filter is narrowing the view, so the bar and the
   // table stay visually connected even though the controls live above the grid
@@ -446,7 +464,7 @@ function render(){
       : '<span class="dim">—</span>';
     const adj = Number(r.recency_adj);
     const adjTxt = adj ? ` · ${adj > 0 ? "+" : ""}${adj.toFixed(2)} recency → ${Number(r.rank_score).toFixed(1)} rank` : "";
-    return `<div class="row ${r._band}">
+    return `<div class="row ${r._band}${r.closed ? " closed" : ""}">
       <div class="c idx">${i + 1}</div>
       <div class="c rank">${Number(r.rank_score).toFixed(1)}</div>
       <div class="c fit num">${Number(r.fit_score).toFixed(1)}</div>
@@ -464,6 +482,10 @@ function render(){
         data-kind="applied" title="${r.applied ? "applied — click to undo" : "mark applied"}"></button></div>
       <div class="c ctl"><button class="mk res ${r.queued ? "on" : ""}" data-role="${r.role_id}"
         data-kind="queued" title="${r.queued ? "queued — click to undo" : "queue a tailored resume"}"></button></div>
+      <div class="c ctl"><button class="mk act ${r.active ? "on" : ""}" data-role="${r.role_id}"
+        data-kind="active" title="${r.active ? "active — click to undo" : "mark actively pursuing"}"></button></div>
+      <div class="c ctl"><button class="mk cls ${r.closed ? "on" : ""}" data-role="${r.role_id}"
+        data-kind="closed" title="${r.closed ? "closed — click to reopen" : "close: finished or rejected"}"></button></div>
       <div class="c ctl"><button class="xbtn" data-detail="${i}">open</button></div>
       <div class="detail" data-panel="${i}" hidden>
         <div><b>${esc(r.company)}</b><p class="fulltitle">${esc(r.title)}</p></div>
@@ -483,15 +505,19 @@ async function mark(btn){
   const roleId = Number(btn.dataset.role);
   const kind = btn.dataset.kind;
   const rec = DATA.roles.find(r => r.role_id === roleId);
-  const turningOn = !rec[kind === "applied" ? "applied" : "queued"];
-  const action = kind === "applied"
-    ? (turningOn ? "applied" : "unapplied")
-    : (turningOn ? "queued" : "unqueued");
+  const turningOn = !rec[kind];
+  const ACTIONS = {           // [action when turning ON, action when turning OFF]
+    applied: ["applied", "unapplied"],
+    queued:  ["queued", "unqueued"],
+    active:  ["active", "inactive"],
+    closed:  ["closed", "reopened"],
+  };
+  const action = ACTIONS[kind][turningOn ? 0 : 1];
   btn.classList.add("busy");
   try {
     const res = await fetch(`${API}/mark?role=${roleId}&action=${action}&token=${encodeURIComponent(TOKEN)}`);
     if (!res.ok) throw new Error("HTTP " + res.status);
-    if (kind === "applied") rec.applied = turningOn; else rec.queued = turningOn;
+    rec[kind] = turningOn;
     render();
   } catch (e) {
     btn.classList.remove("busy");
@@ -529,7 +555,8 @@ document.addEventListener("click", e => {
 $("q").addEventListener("input", e => { F.q = e.target.value.toLowerCase().trim(); render(); });
 $("f-age").addEventListener("change", e => { F.age = parseInt(e.target.value,10) || 0; render(); });
 $("reset").addEventListener("click", () => {
-  Object.assign(F, {q:"", age:0, fresh:false, apply:false, flagged:false, open:false});
+  Object.assign(F, {q:"", age:0, fresh:false, apply:false, flagged:false, open:false,
+                    activeOnly:false, hideClosed:true});
   document.querySelectorAll(".msel-list input").forEach(b => b.checked = true);
   document.querySelectorAll(".msel").forEach(el => {
     const cfg = MSELS.find(c => c.id === el.id);
@@ -541,9 +568,64 @@ $("reset").addEventListener("click", () => {
   document.querySelectorAll(".msel-search").forEach(i => i.value = "");
   $("q").value = "";
   $("f-age").value = "";
-  document.querySelectorAll('.chip[aria-pressed=true]').forEach(c => c.setAttribute("aria-pressed","false"));
+  document.querySelectorAll('.chip[data-f]').forEach(c =>
+    c.setAttribute("aria-pressed", String(c.dataset.f === "hideClosed")));
   render();
 });
+// Export exactly what is on screen: same filters, same sort order, same columns
+// you can see — plus the full reasoning text, which the table truncates.
+const CSV_COLS = [
+  ["#",            (r,i) => i + 1],
+  ["Rank",         r => Number(r.rank_score).toFixed(2)],
+  ["Fit",          r => Number(r.fit_score).toFixed(1)],
+  ["Recency adj",  r => Number(r.recency_adj).toFixed(2)],
+  ["Industry adj", r => Number(r.industry_adj ?? 0).toFixed(2)],
+  ["Lane adj",     r => Number(r.lane_adj ?? 0).toFixed(2)],
+  ["Posted",       r => r.posted_at || ""],
+  ["Days old",     r => r.days_old ?? ""],
+  ["Company",      r => r.company],
+  ["Title",        r => r.title],
+  ["Level",        r => r.seniority || ""],
+  ["Industry",     r => r.sector || ""],
+  ["Location",     r => (r.locations || []).join("; ")],
+  ["Function",     r => r.lane || ""],
+  ["Base min",     r => r.posted_salary_min ?? ""],
+  ["Base max",     r => r.posted_salary_max ?? ""],
+  ["Use resume",   r => r.variant || ""],
+  ["Flags",        r => (r.signals || []).join(" | ")],
+  ["Applied",      r => r.applied ? "yes" : ""],
+  ["Resume queued",r => r.queued ? "yes" : ""],
+  ["Active",       r => r.active ? "yes" : ""],
+  ["Closed",       r => r.closed ? "yes" : ""],
+  ["Headline",     r => r.headline || ""],
+  ["Why this score", r => r.reasoning || ""],
+  ["Why this resume", r => r.variant_match_reasoning || ""],
+  ["Gaps",         r => r.gaps || ""],
+  ["URL",          r => r.url],
+];
+
+function csvCell(v) {
+  const s = String(v ?? "");
+  // quote when the value contains a delimiter, quote or newline; double inner quotes
+  return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+$("export").addEventListener("click", () => {
+  const list = sorted(visible());
+  const header = CSV_COLS.map(c => csvCell(c[0])).join(",");
+  const body = list.map((r, i) => CSV_COLS.map(c => csvCell(c[1](r, i))).join(",")).join("\r\n");
+  // BOM so Excel opens UTF-8 correctly (é, –, ✓ in the reasoning text)
+  const blob = new Blob(["\ufeff" + header + "\r\n" + body], {type: "text/csv;charset=utf-8"});
+  const stamp = new Date().toISOString().slice(0, 10);
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `role-triage-${stamp}-${list.length}-roles.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+});
+
 $("refresh").addEventListener("click", async () => {
   const b = $("refresh");
   b.textContent = "…"; b.disabled = true;
