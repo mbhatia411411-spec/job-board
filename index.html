@@ -48,6 +48,27 @@ h1{font-family:"Instrument Serif",Georgia,serif;font-weight:400;font-size:33px;m
 .panel{background:var(--surface);border:1px solid var(--line);border-radius:0 5px 5px 5px;padding:13px}
 .filters{display:flex;gap:7px;flex-wrap:wrap;align-items:center;padding-bottom:11px;
   border-bottom:1px solid var(--line-2)}
+.msel{position:relative}
+.msel-btn{font:inherit;font-size:12.5px;padding:5px 22px 5px 9px;border:1px solid var(--line);
+  border-radius:4px;background:var(--surface);color:var(--ink);cursor:pointer;text-align:left;
+  max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.msel-btn::after{content:"▾";position:absolute;right:8px;color:var(--ink-3);pointer-events:none}
+.msel-btn.active{border-color:var(--accent);color:var(--accent);font-weight:600}
+.msel-btn:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.msel-panel{position:absolute;z-index:20;top:calc(100% + 4px);left:0;min-width:236px;max-height:330px;
+  overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:5px;
+  box-shadow:0 8px 26px rgba(0,0,0,.14);padding:8px}
+.msel-tools{display:flex;gap:6px;padding:0 4px 7px;border-bottom:1px solid var(--line-2);margin-bottom:6px}
+.msel-tools button{font:inherit;font-size:11.5px;border:none;background:none;color:var(--accent);
+  cursor:pointer;padding:2px 4px}
+.msel-tools button:hover{text-decoration:underline}
+.msel-search{width:100%;margin-bottom:6px}
+.msel label{display:flex;gap:8px;align-items:center;padding:4px 5px;border-radius:3px;
+  font-size:13px;cursor:pointer;white-space:nowrap}
+.msel label:hover{background:var(--hover)}
+.msel label input{margin:0}
+.msel-none{padding:8px 5px;color:var(--ink-3);font-size:12.5px}
+.hd button.filtered::before{content:"● ";color:var(--accent);font-size:8px;vertical-align:middle}
 select,input[type=search],input[type=password]{font:inherit;font-size:12.5px;padding:5px 8px;
   border:1px solid var(--line);border-radius:4px;background:var(--surface);color:var(--ink);max-width:165px}
 select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
@@ -170,11 +191,11 @@ footer{margin-top:18px;color:var(--ink-3);font-size:12px;display:flex;justify-co
   <div class="panel" id="p-live">
     <div class="filters">
       <input type="search" id="q" placeholder="search title or company" aria-label="Search">
-      <select id="f-company" aria-label="Company"></select>
-      <select id="f-sector" aria-label="Industry"></select>
-      <select id="f-state" aria-label="Location"></select>
-      <select id="f-sen" aria-label="Level"></select>
-      <select id="f-lane" aria-label="Function"></select>
+      <div class="msel" id="m-company"></div>
+      <div class="msel" id="m-sector"></div>
+      <div class="msel" id="m-state"></div>
+      <div class="msel" id="m-sen"></div>
+      <div class="msel" id="m-lane"></div>
       <select id="f-age" aria-label="Posted">
         <option value="">Any age</option><option value="7">≤ 7 days</option>
         <option value="14">≤ 14 days</option><option value="30">≤ 30 days</option>
@@ -209,7 +230,19 @@ footer{margin-top:18px;color:var(--ink-3);font-size:12px;display:flex;justify-co
 const API = "https://qqhtzivvnpjexeflgvcp.supabase.co/functions/v1";
 let TOKEN = "";
 let DATA = null;
-const F = {q:"",company:"",sector:"",state:"",sen:"",lane:"",age:0,fresh:false,apply:false,flagged:false,open:false};
+// Multi-select filters hold a Set of the values currently ticked. Everything is
+// ticked on load, so the default is "show all" and unticking is how you exclude —
+// which is the only way to express "every industry except banking".
+const F = {q:"", age:0, fresh:false, apply:false, flagged:false, open:false,
+           company:new Set(), sector:new Set(), state:new Set(), sen:new Set(), lane:new Set()};
+const MSELS = [
+  {key:"company", id:"m-company", label:"companies", get:r => r.company,     search:true},
+  {key:"sector",  id:"m-sector",  label:"industries", get:r => r.sector || "—"},
+  {key:"state",   id:"m-state",   label:"locations",  get:r => r._state},
+  {key:"sen",     id:"m-sen",     label:"levels",     get:r => r.seniority},
+  {key:"lane",    id:"m-lane",    label:"functions",  get:r => r._lane},
+];
+const COLFILTER = {company:"company", sector:"sector", state:"_state", sen:"seniority", lane:"_lane"};
 const sortState = {key:"rank_score", dir:"desc"};
 
 const $ = id => document.getElementById(id);
@@ -249,18 +282,62 @@ async function load(){
   hydrate();
 }
 
-function fillSelect(el, label, values){
-  el.innerHTML = `<option value="">${label}</option>` +
-    [...new Set(values)].filter(Boolean).sort().map(v => `<option>${esc(v)}</option>`).join("");
+function buildMsel(cfg){
+  const values = [...new Set(DATA.roles.map(cfg.get))].filter(Boolean).sort();
+  F[cfg.key] = new Set(values);                       // everything on by default
+  const el = $(cfg.id);
+  el.innerHTML = `
+    <button class="msel-btn" aria-expanded="false">All ${cfg.label}</button>
+    <div class="msel-panel" hidden>
+      <div class="msel-tools"><button data-all>Select all</button><button data-none>Clear all</button></div>
+      ${cfg.search ? `<input type="search" class="msel-search" placeholder="find…" aria-label="Filter list">` : ""}
+      <div class="msel-list">${values.map(v =>
+        `<label><input type="checkbox" value="${esc(v)}" checked><span>${esc(v)}</span></label>`).join("")}</div>
+    </div>`;
+  const btn = el.querySelector(".msel-btn");
+  const panel = el.querySelector(".msel-panel");
+  const boxes = () => [...el.querySelectorAll(".msel-list input")];
+
+  const sync = () => {
+    const on = boxes().filter(b => b.checked).map(b => b.value);
+    F[cfg.key] = new Set(on);
+    const all = on.length === values.length;
+    btn.textContent = all ? `All ${cfg.label}`
+      : on.length === 0 ? `No ${cfg.label}`
+      : on.length === 1 ? on[0]
+      : `${on.length} ${cfg.label}`;
+    btn.classList.toggle("active", !all);
+    render();
+  };
+
+  btn.addEventListener("click", e => {
+    e.stopPropagation();
+    const open = !panel.hidden;
+    document.querySelectorAll(".msel-panel").forEach(p => p.hidden = true);
+    document.querySelectorAll(".msel-btn").forEach(b => b.setAttribute("aria-expanded","false"));
+    panel.hidden = open;
+    btn.setAttribute("aria-expanded", String(!open));
+  });
+  panel.addEventListener("click", e => e.stopPropagation());
+  el.querySelector("[data-all]").addEventListener("click", () => { boxes().forEach(b => b.checked = true); sync(); });
+  el.querySelector("[data-none]").addEventListener("click", () => { boxes().forEach(b => b.checked = false); sync(); });
+  el.querySelectorAll(".msel-list input").forEach(b => b.addEventListener("change", sync));
+  const srch = el.querySelector(".msel-search");
+  if (srch) srch.addEventListener("input", e => {
+    const q = e.target.value.toLowerCase();
+    el.querySelectorAll(".msel-list label").forEach(l =>
+      l.hidden = !l.textContent.toLowerCase().includes(q));
+  });
+  return () => sync();
 }
+document.addEventListener("click", () => {
+  document.querySelectorAll(".msel-panel").forEach(p => p.hidden = true);
+  document.querySelectorAll(".msel-btn").forEach(b => b.setAttribute("aria-expanded","false"));
+});
 
 function hydrate(){
   const R = DATA.roles;
-  fillSelect($("f-company"), "All companies", R.map(r => r.company));
-  fillSelect($("f-sector"), "All industries", R.map(r => r.sector || "—"));
-  fillSelect($("f-state"), "All locations", R.map(r => r._state));
-  fillSelect($("f-sen"), "All levels", R.map(r => r.seniority));
-  fillSelect($("f-lane"), "All functions", R.map(r => r._lane));
+  MSELS.forEach(buildMsel);
   $("sub").textContent =
     `${DATA.funnel.total.toLocaleString()} scraped · ${DATA.funnel.companies} companies · ${R.length} scored`;
   $("s-fresh").textContent = R.filter(r => r.days_old !== null && r.days_old <= 7).length;
@@ -280,11 +357,11 @@ function visible(){
   return DATA.roles.filter(r => {
     const text = (r.company + " " + r.title).toLowerCase();
     if (F.q && !text.includes(F.q)) return false;
-    if (F.company && r.company !== F.company) return false;
-    if (F.sector && (r.sector || "—") !== F.sector) return false;
-    if (F.state && r._state !== F.state) return false;
-    if (F.sen && r.seniority !== F.sen) return false;
-    if (F.lane && r._lane !== F.lane) return false;
+    if (!F.company.has(r.company)) return false;
+    if (!F.sector.has(r.sector || "—")) return false;
+    if (!F.state.has(r._state)) return false;
+    if (!F.sen.has(r.seniority)) return false;
+    if (!F.lane.has(r._lane)) return false;
     if (F.age && !(r.days_old !== null && r.days_old <= F.age)) return false;
     if (F.fresh && !(r.days_old !== null && r.days_old <= 7)) return false;
     if (F.apply && r._band !== "apply") return false;
@@ -326,8 +403,14 @@ function render(){
   $("s-applied").textContent = DATA.roles.filter(r => r.applied).length;
   $("s-queued").textContent = DATA.roles.filter(r => r.queued).length;
 
+  // a dot marks any column whose filter is narrowing the view, so the bar and the
+  // table stay visually connected even though the controls live above the grid
+  const narrowed = new Set(MSELS
+    .filter(c => F[c.key].size !== new Set(DATA.roles.map(c.get)).size)
+    .map(c => COLFILTER[c.key]));
   const head = `<div class="hd">` + COLS.map(([k,label,tip]) =>
     `<button ${k ? `data-sort="${k}"` : ""} ${tip ? `title="${esc(tip)}"` : ""}
+      class="${k && narrowed.has(k) ? "filtered" : ""}"
       ${k === sortState.key ? `data-dir="${sortState.dir}"` : ""}>${label}</button>`).join("") + `</div>`;
 
   const rows = list.map((r,i) => {
@@ -419,13 +502,20 @@ document.addEventListener("click", e => {
 });
 
 $("q").addEventListener("input", e => { F.q = e.target.value.toLowerCase().trim(); render(); });
-[["f-company","company"],["f-sector","sector"],["f-state","state"],["f-sen","sen"],["f-lane","lane"]]
-  .forEach(([id,key]) => $(id).addEventListener("change", e => { F[key] = e.target.value; render(); }));
 $("f-age").addEventListener("change", e => { F.age = parseInt(e.target.value,10) || 0; render(); });
 $("reset").addEventListener("click", () => {
-  Object.assign(F, {q:"",company:"",sector:"",state:"",sen:"",lane:"",age:0,fresh:false,apply:false,flagged:false,open:false});
-  document.querySelectorAll("select").forEach(s => s.value = "");
+  Object.assign(F, {q:"", age:0, fresh:false, apply:false, flagged:false, open:false});
+  document.querySelectorAll(".msel-list input").forEach(b => b.checked = true);
+  document.querySelectorAll(".msel").forEach(el => {
+    const cfg = MSELS.find(c => c.id === el.id);
+    F[cfg.key] = new Set([...new Set(DATA.roles.map(cfg.get))].filter(Boolean));
+    const btn = el.querySelector(".msel-btn");
+    btn.textContent = `All ${cfg.label}`; btn.classList.remove("active");
+  });
+  document.querySelectorAll(".msel-list label").forEach(l => l.hidden = false);
+  document.querySelectorAll(".msel-search").forEach(i => i.value = "");
   $("q").value = "";
+  $("f-age").value = "";
   document.querySelectorAll('.chip[aria-pressed=true]').forEach(c => c.setAttribute("aria-pressed","false"));
   render();
 });
