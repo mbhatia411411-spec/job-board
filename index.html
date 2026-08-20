@@ -1,0 +1,463 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Role Triage</title>
+<meta name="robots" content="noindex,nofollow">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  --paper:#F6F7F9; --surface:#FFF; --sunk:#EDEFF3; --hover:#F2F5FA;
+  --ink:#14181F; --ink-2:#4A535F; --ink-3:#7B8492;
+  --line:#DFE3EA; --line-2:#EAEDF2; --accent:#2E4B8F;
+  --apply:#12694E; --maybe:#9A6A12; --skip:#7B8492;
+  --fresh:#0E6B4F; --fresh-bg:#DCF0E6; --stale:#8A93A1; --stale-bg:#EDEFF3;
+  --flag:#8C3A2B; --flag-bg:#F8E9E5; --var-bg:#E4F0EA; --var:#12694E;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){
+  --paper:#0F1319; --surface:#151A22; --sunk:#1C222B; --hover:#1B2331;
+  --ink:#E9ECF1; --ink-2:#A4AEBC; --ink-3:#6F7886;
+  --line:#272F3A; --line-2:#1F262F; --accent:#90A9E2;
+  --apply:#5FC79E; --maybe:#D9A84A; --skip:#8B94A2;
+  --fresh:#63CFA3; --fresh-bg:#123026; --stale:#79838F; --stale-bg:#1C222B;
+  --flag:#E0937F; --flag-bg:#2B1A16; --var-bg:#12291F; --var:#5FC79E;
+}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);
+  font-family:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,sans-serif;font-size:14px;line-height:1.45;
+  -webkit-font-smoothing:antialiased}
+.wrap{max-width:1660px;margin:0 auto;padding:26px 18px 70px}
+header{display:flex;align-items:flex-end;gap:20px;flex-wrap:wrap;justify-content:space-between;
+  padding-bottom:14px;border-bottom:1px solid var(--line)}
+h1{font-family:"Instrument Serif",Georgia,serif;font-weight:400;font-size:33px;margin:0;line-height:1.1}
+.sub{font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--ink-3);margin-top:4px}
+.stats{display:flex;gap:22px;flex-wrap:wrap}
+.stat{text-align:right}
+.stat .n{font-family:"IBM Plex Mono",monospace;font-size:21px;font-weight:600;
+  font-variant-numeric:tabular-nums;display:block;line-height:1.1}
+.stat .k{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);margin-top:2px}
+.stat.done .n{color:var(--apply)} .stat.queue .n{color:var(--accent)} .stat.new .n{color:var(--fresh)}
+.tabs{display:flex;gap:4px;margin:16px 0 0}
+.tab{font:inherit;font-size:13px;padding:7px 15px;border:1px solid var(--line);border-bottom:none;
+  background:var(--sunk);color:var(--ink-2);cursor:pointer;border-radius:5px 5px 0 0}
+.tab[aria-selected=true]{background:var(--surface);color:var(--ink);font-weight:600}
+.tab:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:0 5px 5px 5px;padding:13px}
+.filters{display:flex;gap:7px;flex-wrap:wrap;align-items:center;padding-bottom:11px;
+  border-bottom:1px solid var(--line-2)}
+select,input[type=search],input[type=password]{font:inherit;font-size:12.5px;padding:5px 8px;
+  border:1px solid var(--line);border-radius:4px;background:var(--surface);color:var(--ink);max-width:165px}
+select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.chip{font:inherit;font-size:12.5px;padding:5px 11px;border-radius:16px;cursor:pointer;
+  border:1px solid var(--line);background:var(--surface);color:var(--ink-2)}
+.chip[aria-pressed=true]{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.chip.hot[aria-pressed=true]{background:var(--fresh);border-color:var(--fresh);color:#fff}
+.chip:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.grow{flex:1} .count{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--ink-3)}
+.tbl{display:flex;flex-direction:column;overflow-x:auto}
+.hd,.row{display:grid;
+  grid-template-columns:50px 44px 74px 124px minmax(230px,1.6fr) 96px 106px 58px 116px 100px 142px 112px 54px 54px 62px;
+  align-items:center;min-width:1470px}
+.hd{position:sticky;top:0;z-index:2;background:var(--surface);border-bottom:1.5px solid var(--line)}
+.hd button{font:inherit;font-size:10px;text-transform:uppercase;letter-spacing:.06em;font-weight:600;
+  color:var(--ink-3);background:none;border:none;padding:9px 6px;text-align:left;cursor:pointer;width:100%}
+.hd button:hover{color:var(--accent)}
+.hd button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.hd button[data-dir]::after{content:" ↓";color:var(--accent)}
+.hd button[data-dir=asc]::after{content:" ↑";color:var(--accent)}
+.row{border-bottom:1px solid var(--line-2);border-left:3px solid transparent}
+.row:hover{background:var(--hover)}
+.row.apply{border-left-color:var(--apply)} .row.maybe{border-left-color:var(--maybe)}
+.row.skip{border-left-color:var(--line)}
+.c{padding:7px 6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rank{font-family:"Instrument Serif",Georgia,serif;font-size:20px;font-variant-numeric:tabular-nums;
+  text-align:center;padding:5px 0}
+.row.apply .rank{color:var(--apply)} .row.maybe .rank{color:var(--maybe)} .row.skip .rank{color:var(--skip)}
+.fit{color:var(--ink-3);text-align:center;font-size:12px}
+.age{font-family:"IBM Plex Mono",monospace;font-size:11px;font-weight:500;padding:2px 7px;border-radius:3px}
+.age.fresh{background:var(--fresh-bg);color:var(--fresh)}
+.age.ok{background:var(--sunk);color:var(--ink-2)}
+.age.mid{background:transparent;color:var(--ink-3)}
+.age.stale{background:var(--stale-bg);color:var(--stale)}
+.age.unk{background:transparent;color:var(--ink-3);font-style:italic}
+.co{font-weight:600}
+.ttl a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--line)}
+.ttl a:hover{color:var(--accent);border-bottom-color:var(--accent)}
+.dim{color:var(--ink-3)}
+.num{font-family:"IBM Plex Mono",monospace;font-size:11.5px;font-variant-numeric:tabular-nums}
+.pin{font-family:"IBM Plex Mono",monospace;font-size:11px;padding:1px 6px;border-radius:3px;background:var(--sunk)}
+.var{font-family:"IBM Plex Mono",monospace;font-size:10.5px;padding:2px 6px;border-radius:3px;
+  background:var(--var-bg);color:var(--var);display:inline-block;max-width:100%;overflow:hidden;
+  text-overflow:ellipsis;vertical-align:bottom}
+.flags{white-space:normal;display:flex;gap:3px;flex-wrap:wrap}
+.flag{font-size:9.5px;padding:1px 5px;border-radius:3px;background:var(--flag-bg);color:var(--flag)}
+.ctl{text-align:center;padding:5px 0}
+.mk{width:18px;height:18px;border:1.5px solid var(--line);border-radius:4px;background:var(--surface);
+  cursor:pointer;font-size:12px;line-height:1;color:transparent;padding:0}
+.mk:hover{border-color:var(--apply);color:var(--ink-3)}
+.mk::after{content:"✓"}
+.mk.on{background:var(--apply);border-color:var(--apply);color:#fff}
+.mk.res:hover{border-color:var(--accent)}
+.mk.res.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.mk.busy{opacity:.45;cursor:progress}
+.mk:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.xbtn{font:inherit;font-size:11px;color:var(--ink-3);background:none;border:1px solid var(--line);
+  border-radius:4px;padding:3px 7px;cursor:pointer}
+.xbtn:hover{color:var(--accent);border-color:var(--accent)}
+.detail{grid-column:1/-1;background:var(--sunk);padding:13px 18px;display:flex;flex-direction:column;
+  gap:9px;white-space:normal;border-top:1px solid var(--line-2)}
+[hidden]{display:none!important}
+.detail b{font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-3);display:block;
+  margin-bottom:3px}
+.detail p{margin:0;color:var(--ink-2);max-width:98ch;font-size:13px}
+.dline{display:flex;gap:16px;font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-3)}
+table.drops{width:100%;border-collapse:collapse;font-size:13px}
+table.drops th{text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.07em;
+  color:var(--ink-3);padding:7px 8px;border-bottom:1.5px solid var(--line)}
+table.drops td{padding:6px 8px;border-bottom:1px solid var(--line-2)}
+.rule{font-family:"IBM Plex Mono",monospace;font-size:10.5px;padding:1px 6px;border-radius:3px;background:var(--sunk)}
+.rule.hard_avoid{background:var(--flag-bg);color:var(--flag)}
+.note{background:var(--sunk);border-left:3px solid var(--accent);padding:11px 14px;margin-bottom:13px;
+  font-size:13px;color:var(--ink-2);border-radius:0 4px 4px 0}
+footer{margin-top:18px;color:var(--ink-3);font-size:12px;display:flex;justify-content:space-between;
+  gap:14px;flex-wrap:wrap}
+.gate{max-width:420px;margin:14vh auto;background:var(--surface);border:1px solid var(--line);
+  border-radius:6px;padding:26px}
+.gate h2{font-family:"Instrument Serif",Georgia,serif;font-weight:400;margin:0 0 8px;font-size:26px}
+.gate p{color:var(--ink-2);margin:0 0 14px}
+.gate input{max-width:100%;width:100%;margin-bottom:10px}
+.gate button{font:inherit;background:var(--accent);color:#fff;border:none;border-radius:4px;
+  padding:8px 16px;cursor:pointer}
+.err{color:var(--flag)}
+.loading{padding:40px;text-align:center;color:var(--ink-3);font-family:"IBM Plex Mono",monospace}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+
+<div id="gate" class="gate" hidden>
+  <h2>Role Triage</h2>
+  <p>Paste your access token to load the board. It is stored in this browser only.</p>
+  <input type="password" id="tok" placeholder="access token" autocomplete="off">
+  <button id="tok-go">Open board</button>
+  <p class="err" id="gate-err" hidden></p>
+</div>
+
+<div class="wrap" id="app" hidden>
+  <header>
+    <div><h1>Role Triage</h1><div class="sub" id="sub">loading…</div></div>
+    <div class="stats">
+      <div class="stat new"><span class="n" id="s-fresh">–</span><div class="k">posted ≤7d</div></div>
+      <div class="stat"><span class="n" id="s-shown">–</span><div class="k">shown</div></div>
+      <div class="stat done"><span class="n" id="s-applied">–</span><div class="k">applied</div></div>
+      <div class="stat queue"><span class="n" id="s-queued">–</span><div class="k">resume queued</div></div>
+    </div>
+  </header>
+
+  <div class="tabs">
+    <button class="tab" id="t-live" aria-selected="true">Scored roles</button>
+    <button class="tab" id="t-drop" aria-selected="false">Filtered out</button>
+  </div>
+
+  <div class="panel" id="p-live">
+    <div class="filters">
+      <input type="search" id="q" placeholder="search title or company" aria-label="Search">
+      <select id="f-company" aria-label="Company"></select>
+      <select id="f-sector" aria-label="Industry"></select>
+      <select id="f-state" aria-label="Location"></select>
+      <select id="f-sen" aria-label="Level"></select>
+      <select id="f-lane" aria-label="Function"></select>
+      <select id="f-age" aria-label="Posted">
+        <option value="">Any age</option><option value="7">≤ 7 days</option>
+        <option value="14">≤ 14 days</option><option value="30">≤ 30 days</option>
+      </select>
+      <button class="chip hot" data-f="fresh" aria-pressed="false">Fresh only</button>
+      <button class="chip" data-f="apply" aria-pressed="false">≥6.5</button>
+      <button class="chip" data-f="flagged" aria-pressed="false">Flagged</button>
+      <button class="chip" data-f="open" aria-pressed="false">Not applied</button>
+      <button class="chip" id="reset">Reset</button>
+      <span class="grow"></span>
+      <button class="chip" id="refresh">Refresh</button>
+      <span class="count" id="count"></span>
+    </div>
+    <div class="tbl" id="tbl"><div class="loading">loading roles…</div></div>
+  </div>
+
+  <div class="panel" id="p-drop" hidden>
+    <div class="note" id="drop-note"></div>
+    <div style="overflow-x:auto"><table class="drops">
+      <thead><tr><th>Company</th><th>Title</th><th>Locations</th><th>Rule</th><th>Reason</th></tr></thead>
+      <tbody id="drop-body"></tbody></table></div>
+  </div>
+
+  <footer>
+    <span>Rank = fit ± recency (≤7d +0.75, ≤14d +0.25, 29d+ −0.75; no date is never penalized).
+      Clicking ✓ or Res writes straight to the database.</span>
+    <span id="stamp"></span>
+  </footer>
+</div>
+
+<script>
+const API = "https://qqhtzivvnpjexeflgvcp.supabase.co/functions/v1";
+let TOKEN = "";
+let DATA = null;
+const F = {q:"",company:"",sector:"",state:"",sen:"",lane:"",age:0,fresh:false,apply:false,flagged:false,open:false};
+const sortState = {key:"rank_score", dir:"desc"};
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const band = s => s >= 6.5 ? "apply" : s >= 5 ? "maybe" : "skip";
+const money = n => n ? "$" + Math.round(n/1000) + "K" : "";
+
+function stateOf2(locs){
+  const FULL = {"New Jersey":"NJ","New York":"NY","Pennsylvania":"PA","Connecticut":"CT","Massachusetts":"MA"};
+  for (const l of locs || []) {
+    const m = /\b(NJ|NY|PA|CT|MA)\b/.exec(l);
+    if (m) return m[1];
+    for (const k in FULL) if (l.includes(k)) return FULL[k];
+    if (/remote/i.test(l)) return "Remote";
+  }
+  return "—";
+}
+
+function ageCell(days, posted){
+  if (days === null || days === undefined)
+    return '<span class="age unk" title="no posted date — never penalized">no date</span>';
+  const cls = days <= 7 ? "fresh" : days <= 14 ? "ok" : days <= 28 ? "mid" : "stale";
+  const label = days < 100 ? days + "d" : Math.floor(days/30) + "mo";
+  return `<span class="age ${cls}" title="posted ${esc(posted)}">${label}</span>`;
+}
+
+async function load(){
+  const res = await fetch(`${API}/board?token=${encodeURIComponent(TOKEN)}`, {cache:"no-store"});
+  if (res.status === 401) throw new Error("That token was rejected.");
+  if (!res.ok) throw new Error("Could not load (HTTP " + res.status + ").");
+  DATA = await res.json();
+  DATA.roles.forEach(r => {
+    r._state = stateOf2(r.locations);
+    r._lane = (r.lane || "—").split(" /")[0];
+    r._band = band(Number(r.rank_score));
+  });
+  hydrate();
+}
+
+function fillSelect(el, label, values){
+  el.innerHTML = `<option value="">${label}</option>` +
+    [...new Set(values)].filter(Boolean).sort().map(v => `<option>${esc(v)}</option>`).join("");
+}
+
+function hydrate(){
+  const R = DATA.roles;
+  fillSelect($("f-company"), "All companies", R.map(r => r.company));
+  fillSelect($("f-sector"), "All industries", R.map(r => r.sector || "—"));
+  fillSelect($("f-state"), "All locations", R.map(r => r._state));
+  fillSelect($("f-sen"), "All levels", R.map(r => r.seniority));
+  fillSelect($("f-lane"), "All functions", R.map(r => r._lane));
+  $("sub").textContent =
+    `${DATA.funnel.total.toLocaleString()} scraped · ${DATA.funnel.companies} companies · ${R.length} scored`;
+  $("s-fresh").textContent = R.filter(r => r.days_old !== null && r.days_old <= 7).length;
+  $("drop-note").innerHTML =
+    `<b>Audit view.</b> ${DATA.funnel.dropped.toLocaleString()} roles filtered out; showing the ${DATA.dropped.length} most recent.
+     Anything genuinely good here means a rule needs loosening.`;
+  $("drop-body").innerHTML = DATA.dropped.map(x =>
+    `<tr><td>${esc(x.company)}</td><td>${esc(x.title)}</td>
+     <td class="dim">${esc((x.locations||[]).join("; ").slice(0,60))}</td>
+     <td><span class="rule ${esc(x.rule)}">${esc(x.rule)}</span></td>
+     <td class="dim">${esc((x.reason||"").slice(0,90))}</td></tr>`).join("");
+  $("stamp").textContent = "live · loaded " + new Date().toLocaleTimeString();
+  render();
+}
+
+function visible(){
+  return DATA.roles.filter(r => {
+    const text = (r.company + " " + r.title).toLowerCase();
+    if (F.q && !text.includes(F.q)) return false;
+    if (F.company && r.company !== F.company) return false;
+    if (F.sector && (r.sector || "—") !== F.sector) return false;
+    if (F.state && r._state !== F.state) return false;
+    if (F.sen && r.seniority !== F.sen) return false;
+    if (F.lane && r._lane !== F.lane) return false;
+    if (F.age && !(r.days_old !== null && r.days_old <= F.age)) return false;
+    if (F.fresh && !(r.days_old !== null && r.days_old <= 7)) return false;
+    if (F.apply && r._band !== "apply") return false;
+    if (F.flagged && !(r.signals || []).length) return false;
+    if (F.open && r.applied) return false;
+    return true;
+  });
+}
+
+function sorted(list){
+  const k = sortState.key, dir = sortState.dir === "desc" ? -1 : 1;
+  const val = r => {
+    if (k === "rank_score" || k === "fit_score") return Number(r[k]) || 0;
+    if (k === "days_old") return r.days_old === null ? 1e9 : r.days_old;
+    if (k === "posted_salary_max") return r.posted_salary_max || 0;
+    if (k === "applied" || k === "queued") return r[k] ? 1 : 0;
+    if (k === "_state" || k === "_lane") return (r[k] || "").toLowerCase();
+    return String(r[k] ?? "").toLowerCase();
+  };
+  return [...list].sort((a,b) => { const x = val(a), y = val(b);
+    return (x < y ? -1 : x > y ? 1 : 0) * dir; });
+}
+
+const COLS = [
+  ["rank_score","Rank","fit adjusted for how recently it was posted"],
+  ["fit_score","Fit","Claude's fit score, before recency"],
+  ["days_old","Posted","days since posting"],
+  ["company","Company",""],["title","Role",""],["seniority","Level",""],
+  ["sector","Industry",""],["_state","Loc",""],["_lane","Function",""],
+  ["posted_salary_max","Base max",""],["variant","Use resume",""],
+  [null,"Flags",""],["applied","✓",""],["queued","Res",""],[null,"",""],
+];
+
+function render(){
+  const list = sorted(visible());
+  $("count").textContent = list.length + " of " + DATA.roles.length + " roles";
+  $("s-shown").textContent = list.length;
+  $("s-applied").textContent = DATA.roles.filter(r => r.applied).length;
+  $("s-queued").textContent = DATA.roles.filter(r => r.queued).length;
+
+  const head = `<div class="hd">` + COLS.map(([k,label,tip]) =>
+    `<button ${k ? `data-sort="${k}"` : ""} ${tip ? `title="${esc(tip)}"` : ""}
+      ${k === sortState.key ? `data-dir="${sortState.dir}"` : ""}>${label}</button>`).join("") + `</div>`;
+
+  const rows = list.map((r,i) => {
+    const sal = r.posted_salary_max
+      ? `${money(r.posted_salary_min)}–${money(r.posted_salary_max)}` : "—";
+    const flags = (r.signals || []).length
+      ? r.signals.map(s => `<span class="flag" title="${esc(s)}">${esc(s.split("—")[0].trim().slice(0,20))}</span>`).join("")
+      : '<span class="dim">—</span>';
+    const adj = Number(r.recency_adj);
+    const adjTxt = adj ? ` · ${adj > 0 ? "+" : ""}${adj.toFixed(2)} recency → ${Number(r.rank_score).toFixed(1)} rank` : "";
+    return `<div class="row ${r._band}">
+      <div class="c rank">${Number(r.rank_score).toFixed(1)}</div>
+      <div class="c fit num">${Number(r.fit_score).toFixed(1)}</div>
+      <div class="c">${ageCell(r.days_old, r.posted_at)}</div>
+      <div class="c co">${esc(r.company)}</div>
+      <div class="c ttl"><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a></div>
+      <div class="c dim">${esc(r.seniority)}</div>
+      <div class="c dim">${esc(r.sector || "—")}</div>
+      <div class="c"><span class="pin">${esc(r._state)}</span></div>
+      <div class="c dim">${esc(r._lane)}</div>
+      <div class="c num">${sal}</div>
+      <div class="c"><span class="var">${esc(r.variant || "—")}</span></div>
+      <div class="c flags">${flags}</div>
+      <div class="c ctl"><button class="mk ${r.applied ? "on" : ""}" data-role="${r.role_id}"
+        data-kind="applied" title="${r.applied ? "applied — click to undo" : "mark applied"}"></button></div>
+      <div class="c ctl"><button class="mk res ${r.queued ? "on" : ""}" data-role="${r.role_id}"
+        data-kind="queued" title="${r.queued ? "queued — click to undo" : "queue a tailored resume"}"></button></div>
+      <div class="c ctl"><button class="xbtn" data-detail="${i}">open</button></div>
+      <div class="detail" data-panel="${i}" hidden>
+        <div><b>Why ${Number(r.fit_score).toFixed(1)} fit${adjTxt}</b><p>${esc(r.reasoning)}</p></div>
+        <div><b>Why the ${esc(r.variant || "—")} resume</b><p>${esc(r.variant_match_reasoning)}</p></div>
+        <div><b>Gaps to close first</b><p>${esc(r.gaps)}</p></div>
+        <div class="dline"><span>${esc((r.locations||[]).join("; ").slice(0,80))}</span>
+          <span>posted ${esc(r.posted_at || "unknown")}</span></div>
+      </div></div>`;
+  }).join("");
+
+  $("tbl").innerHTML = head + (rows || '<div class="loading">Nothing matches those filters.</div>');
+}
+
+// ---- marking: fetch() straight to the database, no tab, instant ----
+async function mark(btn){
+  const roleId = Number(btn.dataset.role);
+  const kind = btn.dataset.kind;
+  const rec = DATA.roles.find(r => r.role_id === roleId);
+  const turningOn = !rec[kind === "applied" ? "applied" : "queued"];
+  const action = kind === "applied"
+    ? (turningOn ? "applied" : "unapplied")
+    : (turningOn ? "queued" : "unqueued");
+  btn.classList.add("busy");
+  try {
+    const res = await fetch(`${API}/mark?role=${roleId}&action=${action}&token=${encodeURIComponent(TOKEN)}`);
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    if (kind === "applied") rec.applied = turningOn; else rec.queued = turningOn;
+    render();
+  } catch (e) {
+    btn.classList.remove("busy");
+    alert("Could not save that — " + e.message + ". Nothing was changed.");
+  }
+}
+
+document.addEventListener("click", e => {
+  const mk = e.target.closest(".mk");
+  if (mk) { mark(mk); return; }
+  const det = e.target.closest("[data-detail]");
+  if (det) {
+    const p = document.querySelector(`[data-panel="${det.dataset.detail}"]`);
+    p.hidden = !p.hidden;
+    det.textContent = p.hidden ? "open" : "hide";
+    return;
+  }
+  const sortBtn = e.target.closest(".hd button[data-sort]");
+  if (sortBtn) {
+    const k = sortBtn.dataset.sort;
+    sortState.dir = (sortState.key === k && sortState.dir === "desc") ? "asc" : "desc";
+    sortState.key = k;
+    render();
+    return;
+  }
+  const chip = e.target.closest(".chip[data-f]");
+  if (chip) {
+    const k = chip.dataset.f;
+    F[k] = !F[k];
+    chip.setAttribute("aria-pressed", String(F[k]));
+    render();
+  }
+});
+
+$("q").addEventListener("input", e => { F.q = e.target.value.toLowerCase().trim(); render(); });
+[["f-company","company"],["f-sector","sector"],["f-state","state"],["f-sen","sen"],["f-lane","lane"]]
+  .forEach(([id,key]) => $(id).addEventListener("change", e => { F[key] = e.target.value; render(); }));
+$("f-age").addEventListener("change", e => { F.age = parseInt(e.target.value,10) || 0; render(); });
+$("reset").addEventListener("click", () => {
+  Object.assign(F, {q:"",company:"",sector:"",state:"",sen:"",lane:"",age:0,fresh:false,apply:false,flagged:false,open:false});
+  document.querySelectorAll("select").forEach(s => s.value = "");
+  $("q").value = "";
+  document.querySelectorAll('.chip[aria-pressed=true]').forEach(c => c.setAttribute("aria-pressed","false"));
+  render();
+});
+$("refresh").addEventListener("click", async () => {
+  $("refresh").textContent = "…"; await load(); $("refresh").textContent = "Refresh";
+});
+$("t-live").addEventListener("click", () => {
+  $("t-live").setAttribute("aria-selected","true"); $("t-drop").setAttribute("aria-selected","false");
+  $("p-live").hidden = false; $("p-drop").hidden = true;
+});
+$("t-drop").addEventListener("click", () => {
+  $("t-drop").setAttribute("aria-selected","true"); $("t-live").setAttribute("aria-selected","false");
+  $("p-drop").hidden = false; $("p-live").hidden = true;
+});
+
+// ---- token: URL fragment on first visit, then remembered in this browser ----
+async function boot(){
+  const fromHash = new URLSearchParams(location.hash.slice(1)).get("token");
+  if (fromHash) {
+    localStorage.setItem("triage_token", fromHash);
+    history.replaceState(null, "", location.pathname + location.search);
+  }
+  TOKEN = localStorage.getItem("triage_token") || "";
+  if (!TOKEN) { $("gate").hidden = false; return; }
+  $("app").hidden = false;
+  try { await load(); }
+  catch (e) {
+    $("app").hidden = true; $("gate").hidden = false;
+    $("gate-err").hidden = false; $("gate-err").textContent = e.message;
+    localStorage.removeItem("triage_token");
+  }
+}
+$("tok-go").addEventListener("click", () => {
+  const v = $("tok").value.trim();
+  if (!v) return;
+  localStorage.setItem("triage_token", v);
+  location.reload();
+});
+$("tok").addEventListener("keydown", e => { if (e.key === "Enter") $("tok-go").click(); });
+boot();
+</script>
+</body>
+</html>
