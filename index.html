@@ -59,8 +59,8 @@ select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline
 .grow{flex:1} .count{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--ink-3)}
 .tbl{display:flex;flex-direction:column;overflow-x:auto}
 .hd,.row{display:grid;
-  grid-template-columns:50px 44px 74px 124px minmax(230px,1.6fr) 96px 106px 58px 116px 100px 142px 112px 54px 54px 62px;
-  align-items:center;min-width:1470px}
+  grid-template-columns:34px 50px 44px 74px 124px minmax(260px,1.8fr) 96px 106px 58px 116px 100px 142px 112px 54px 54px 62px;
+  align-items:center;min-width:1520px}
 .hd{position:sticky;top:0;z-index:2;background:var(--surface);border-bottom:1.5px solid var(--line)}
 .hd button{font:inherit;font-size:10px;text-transform:uppercase;letter-spacing:.06em;font-weight:600;
   color:var(--ink-3);background:none;border:none;padding:9px 6px;text-align:left;cursor:pointer;width:100%}
@@ -77,6 +77,10 @@ select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline
   text-align:center;padding:5px 0}
 .row.apply .rank{color:var(--apply)} .row.maybe .rank{color:var(--maybe)} .row.skip .rank{color:var(--skip)}
 .fit{color:var(--ink-3);text-align:center;font-size:12px}
+/* Position in the current view — renumbers on sort, deliberately quiet so it
+   never competes with the Rank score, which is the number that means something. */
+.idx{font-family:"IBM Plex Mono",monospace;font-size:10.5px;color:var(--ink-3);
+  text-align:right;padding-right:8px;font-variant-numeric:tabular-nums}
 .age{font-family:"IBM Plex Mono",monospace;font-size:11px;font-weight:500;padding:2px 7px;border-radius:3px}
 .age.fresh{background:var(--fresh-bg);color:var(--fresh)}
 .age.ok{background:var(--sunk);color:var(--ink-2)}
@@ -113,6 +117,7 @@ select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline
 .detail b{font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-3);display:block;
   margin-bottom:3px}
 .detail p{margin:0;color:var(--ink-2);max-width:98ch;font-size:13px}
+.detail p.fulltitle{color:var(--ink);font-size:15px;font-weight:600}
 .dline{display:flex;gap:16px;font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-3)}
 table.drops{width:100%;border-collapse:collapse;font-size:13px}
 table.drops th{text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.07em;
@@ -304,6 +309,7 @@ function sorted(list){
 }
 
 const COLS = [
+  [null,"#","position in the current sort"],
   ["rank_score","Rank","fit adjusted for how recently it was posted"],
   ["fit_score","Fit","Claude's fit score, before recency"],
   ["days_old","Posted","days since posting"],
@@ -333,17 +339,18 @@ function render(){
     const adj = Number(r.recency_adj);
     const adjTxt = adj ? ` · ${adj > 0 ? "+" : ""}${adj.toFixed(2)} recency → ${Number(r.rank_score).toFixed(1)} rank` : "";
     return `<div class="row ${r._band}">
+      <div class="c idx">${i + 1}</div>
       <div class="c rank">${Number(r.rank_score).toFixed(1)}</div>
       <div class="c fit num">${Number(r.fit_score).toFixed(1)}</div>
       <div class="c">${ageCell(r.days_old, r.posted_at)}</div>
-      <div class="c co">${esc(r.company)}</div>
-      <div class="c ttl"><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a></div>
-      <div class="c dim">${esc(r.seniority)}</div>
-      <div class="c dim">${esc(r.sector || "—")}</div>
-      <div class="c"><span class="pin">${esc(r._state)}</span></div>
-      <div class="c dim">${esc(r._lane)}</div>
+      <div class="c co" title="${esc(r.company)}">${esc(r.company)}</div>
+      <div class="c ttl" title="${esc(r.title)}"><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a></div>
+      <div class="c dim" title="${esc(r.seniority)}">${esc(r.seniority)}</div>
+      <div class="c dim" title="${esc(r.sector || "—")}">${esc(r.sector || "—")}</div>
+      <div class="c" title="${esc((r.locations||[]).join("; "))}"><span class="pin">${esc(r._state)}</span></div>
+      <div class="c dim" title="${esc(r.lane || "—")}">${esc(r._lane)}</div>
       <div class="c num">${sal}</div>
-      <div class="c"><span class="var">${esc(r.variant || "—")}</span></div>
+      <div class="c" title="Use the ${esc(r.variant || "—")} resume"><span class="var">${esc(r.variant || "—")}</span></div>
       <div class="c flags">${flags}</div>
       <div class="c ctl"><button class="mk ${r.applied ? "on" : ""}" data-role="${r.role_id}"
         data-kind="applied" title="${r.applied ? "applied — click to undo" : "mark applied"}"></button></div>
@@ -351,6 +358,7 @@ function render(){
         data-kind="queued" title="${r.queued ? "queued — click to undo" : "queue a tailored resume"}"></button></div>
       <div class="c ctl"><button class="xbtn" data-detail="${i}">open</button></div>
       <div class="detail" data-panel="${i}" hidden>
+        <div><b>${esc(r.company)}</b><p class="fulltitle">${esc(r.title)}</p></div>
         <div><b>Why ${Number(r.fit_score).toFixed(1)} fit${adjTxt}</b><p>${esc(r.reasoning)}</p></div>
         <div><b>Why the ${esc(r.variant || "—")} resume</b><p>${esc(r.variant_match_reasoning)}</p></div>
         <div><b>Gaps to close first</b><p>${esc(r.gaps)}</p></div>
