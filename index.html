@@ -130,6 +130,10 @@ select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline
 .mk.on{background:var(--apply);border-color:var(--apply);color:#fff}
 .mk.res:hover{border-color:var(--accent)}
 .mk.res.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.wk{font:11px/1 ui-monospace,Menlo,monospace;padding:5px 9px;border-radius:16px;
+  border:1px solid var(--line);cursor:help;white-space:nowrap}
+.wk.on{color:var(--apply);border-color:var(--apply)}
+.wk.off{color:var(--flag);border-color:var(--flag)}
 .mk.res{font:600 11px/1 ui-monospace,Menlo,monospace}
 .mk.res.queued{background:var(--maybe);border-color:var(--maybe);color:#fff}
 .mk.res.asis{background:var(--apply);border-color:var(--apply);color:#fff}
@@ -225,6 +229,7 @@ footer{margin-top:18px;color:var(--ink-3);font-size:12px;display:flex;justify-co
       <button class="chip" data-f="hideClosed" aria-pressed="true">Hide closed</button>
       <button class="chip" id="reset">Reset</button>
       <span class="grow"></span>
+      <span class="wk off" id="worker" title="">resume worker · —</span>
       <button class="chip" id="export">Export CSV</button>
       <button class="chip" id="refresh">Refresh</button>
       <span class="count" id="count"></span>
@@ -418,6 +423,53 @@ function visible(){
   });
 }
 
+// After queuing, poll the board until the local worker posts a verdict. Without
+// this the cell sits on "queued" until a manual refresh, which is what made the
+// button feel dead. Gives up after ~2 minutes; the state is still correct on the
+// next refresh either way.
+async function pollResume(roleId) {
+  const started = Date.now();
+  while (Date.now() - started < 120000) {
+    await new Promise(r => setTimeout(r, 3000));
+    let data;
+    try {
+      const res = await fetch(`${API}/board?token=${encodeURIComponent(TOKEN)}`,
+                              {cache: "no-store"});
+      data = await res.json();
+    } catch { continue; }
+    DATA.worker = data.worker || DATA.worker;
+    const fresh = (data.roles || []).find(r => r.role_id === roleId);
+    const rec = DATA.roles.find(r => r.role_id === roleId);
+    if (!fresh || !rec) continue;
+    Object.assign(rec, {
+      resumeState: fresh.resumeState, resumeWhy: fresh.resumeWhy,
+      resumeFile: fresh.resumeFile,
+    });
+    render();
+    workerBadge();
+    if (fresh.resumeState !== "queued") return;   // done, one way or the other
+  }
+}
+
+// A queued role with no worker listening is the failure this badge exists to
+// prevent — it is stated plainly rather than left to look like a broken button.
+function workerBadge() {
+  const el = $("worker");
+  if (!el) return;
+  const w = DATA.worker || {};
+  if (w.online) {
+    el.textContent = w.pending ? `resume worker · generating ${w.pending}` : "resume worker · ready";
+    el.className = "wk on";
+    el.title = "The local worker is running. Tick Res and the file arrives in ~30s.";
+  } else {
+    el.textContent = "resume worker · offline";
+    el.className = "wk off";
+    el.title = "Nothing is listening for Res ticks. On your laptop run:\n"
+             + "  python -m agent resume --watch\n"
+             + "Roles you tick stay queued and generate as soon as it starts.";
+  }
+}
+
 // The Res control is NOT a checkbox — a tick cannot express the answer most roles
 // get, which is "the existing resume is already good enough, send it". States:
 //   (blank)  not queued — click to ask
@@ -491,6 +543,7 @@ function render(){
   $("s-applied").textContent = list.filter(r => r.applied).length;
   $("s-queued").textContent = list.filter(r => r.queued).length;
   $("s-active").textContent = list.filter(r => r.active).length;
+  workerBadge();
 
   // a dot marks any column whose filter is narrowing the view, so the bar and the
   // table stay visually connected even though the controls live above the grid
@@ -563,7 +616,10 @@ async function mark(btn){
     const res = await fetch(`${API}/mark?role=${roleId}&action=${action}&token=${encodeURIComponent(TOKEN)}`);
     if (!res.ok) throw new Error("HTTP " + res.status);
     rec[kind] = turningOn;
-    if (kind === "queued") rec.resumeState = turningOn ? "queued" : "not_queued";
+    if (kind === "queued") {
+      rec.resumeState = turningOn ? "queued" : "not_queued";
+      if (turningOn) pollResume(roleId);
+    }
     render();
   } catch (e) {
     btn.classList.remove("busy");
