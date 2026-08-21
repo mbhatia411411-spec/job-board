@@ -131,7 +131,7 @@ select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline
 .mk.res:hover{border-color:var(--accent)}
 .mk.res.on{background:var(--accent);border-color:var(--accent);color:#fff}
 .mk.res{font:600 11px/1 ui-monospace,Menlo,monospace}
-.mk.res.queued{color:var(--ink-3)}
+.mk.res.queued{background:var(--maybe);border-color:var(--maybe);color:#fff}
 .mk.res.asis{background:var(--apply);border-color:var(--apply);color:#fff}
 .mk.res.tailored{background:var(--accent);border-color:var(--accent);color:#fff}
 .mk.res.failed{background:var(--flag);border-color:var(--flag);color:#fff}
@@ -418,11 +418,15 @@ function visible(){
 //   ✎        tailored file written to resumes/generated/
 //   !        generation failed
 const RES_STATE = {
-  not_queued:      ["",  "res",          "ask whether this needs a tailored resume"],
-  queued:          ["·", "res queued",   "queued — run: python -m agent resume"],
-  send_as_is:      ["✓", "res asis",     "send the existing resume as-is"],
-  worth_tailoring: ["✎", "res tailored", "tailored file written to resumes/generated/"],
-  failed:          ["!", "res failed",   "generation failed"],
+  not_queued:      ["",  "res",
+    "Click to queue a resume for this role.\nThe overnight run decides whether to tailor it, and emails the result."],
+  queued:          ["…", "res queued",
+    "QUEUED — the overnight run will handle this and email you the outcome.\nClick again to cancel."],
+  send_as_is:      ["✓", "res asis",
+    "SEND AS-IS — your existing resume already does the job here. No file needed."],
+  worth_tailoring: ["✎", "res tailored",
+    "TAILORED — a .docx was generated and emailed to you."],
+  failed:          ["!", "res failed", "Generation failed."],
 };
 
 function resCell(r) {
