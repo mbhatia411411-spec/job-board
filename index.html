@@ -130,6 +130,11 @@ select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline
 .mk.on{background:var(--apply);border-color:var(--apply);color:#fff}
 .mk.res:hover{border-color:var(--accent)}
 .mk.res.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.mk.res{font:600 11px/1 ui-monospace,Menlo,monospace}
+.mk.res.queued{color:var(--ink-3)}
+.mk.res.asis{background:var(--apply);border-color:var(--apply);color:#fff}
+.mk.res.tailored{background:var(--accent);border-color:var(--accent);color:#fff}
+.mk.res.failed{background:var(--flag);border-color:var(--flag);color:#fff}
 .mk.act:hover{border-color:var(--maybe)} .mk.act.on{background:var(--maybe);border-color:var(--maybe);color:#fff}
 .mk.cls:hover{border-color:var(--ink-3)} .mk.cls.on{background:var(--ink-3);border-color:var(--ink-3);color:#fff}
 .mk.busy{opacity:.45;cursor:progress}
@@ -405,6 +410,30 @@ function visible(){
   });
 }
 
+// The Res control is NOT a checkbox — a tick cannot express the answer most roles
+// get, which is "the existing resume is already good enough, send it". States:
+//   (blank)  not queued — click to ask
+//   ·        queued, not yet processed
+//   ✓        send as-is — no tailoring needed; the good outcome
+//   ✎        tailored file written to resumes/generated/
+//   !        generation failed
+const RES_STATE = {
+  not_queued:      ["",  "res",          "ask whether this needs a tailored resume"],
+  queued:          ["·", "res queued",   "queued — run: python -m agent resume"],
+  send_as_is:      ["✓", "res asis",     "send the existing resume as-is"],
+  worth_tailoring: ["✎", "res tailored", "tailored file written to resumes/generated/"],
+  failed:          ["!", "res failed",   "generation failed"],
+};
+
+function resCell(r) {
+  const st = r.resumeState || (r.queued ? "queued" : "not_queued");
+  const [glyph, cls, hint] = RES_STATE[st] || RES_STATE.not_queued;
+  const why = r.resumeWhy ? "\n\n" + r.resumeWhy : "";
+  const file = r.resumeFile ? "\n\nFile: " + r.resumeFile.split("/").pop() : "";
+  return `<button class="mk ${cls}" data-role="${r.role_id}" data-kind="queued"
+    title="${esc(hint + why + file)}">${glyph}</button>`;
+}
+
 function sorted(list){
   const k = sortState.key, dir = sortState.dir === "desc" ? -1 : 1;
   const val = r => {
@@ -485,8 +514,7 @@ function render(){
       <div class="c flags">${flags}</div>
       <div class="c ctl"><button class="mk ${r.applied ? "on" : ""}" data-role="${r.role_id}"
         data-kind="applied" title="${r.applied ? "applied — click to undo" : "mark applied"}"></button></div>
-      <div class="c ctl"><button class="mk res ${r.queued ? "on" : ""}" data-role="${r.role_id}"
-        data-kind="queued" title="${r.queued ? "queued — click to undo" : "queue a tailored resume"}"></button></div>
+      <div class="c ctl">${resCell(r)}</div>
       <div class="c ctl"><button class="mk act ${r.active ? "on" : ""}" data-role="${r.role_id}"
         data-kind="active" title="${r.active ? "active — click to undo" : "mark actively pursuing"}"></button></div>
       <div class="c ctl"><button class="mk cls ${r.closed ? "on" : ""}" data-role="${r.role_id}"
@@ -523,6 +551,7 @@ async function mark(btn){
     const res = await fetch(`${API}/mark?role=${roleId}&action=${action}&token=${encodeURIComponent(TOKEN)}`);
     if (!res.ok) throw new Error("HTTP " + res.status);
     rec[kind] = turningOn;
+    if (kind === "queued") rec.resumeState = turningOn ? "queued" : "not_queued";
     render();
   } catch (e) {
     btn.classList.remove("busy");
@@ -599,7 +628,8 @@ const CSV_COLS = [
   ["Use resume",   r => r.variant || ""],
   ["Flags",        r => (r.signals || []).join(" | ")],
   ["Applied",      r => r.applied ? "yes" : ""],
-  ["Resume queued",r => r.queued ? "yes" : ""],
+  ["Resume",       r => (r.resumeState && r.resumeState !== "not_queued") ? r.resumeState : ""],
+  ["Resume note",  r => r.resumeWhy || ""],
   ["Active",       r => r.active ? "yes" : ""],
   ["Closed",       r => r.closed ? "yes" : ""],
   ["Headline",     r => r.headline || ""],
