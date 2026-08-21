@@ -240,7 +240,9 @@ footer{margin-top:18px;color:var(--ink-3);font-size:12px;display:flex;justify-co
   </div>
 
   <footer>
-    <span>Rank = fit ± recency (≤7d +0.75, ≤14d +0.25, 29d+ −0.75; no date is never penalized).
+    <span>Rank = fit ± recency (≤7d +1.00, ≤14d +0.50, 29-60d −0.75, 61-120d −1.75,
+      121-180d −3.00, 180d+ −5.00; no date is never penalized. A trailing "+" means the
+      site only gives a lower bound).
       Clicking ✓ or Res writes straight to the database.</span>
     <span>Filters combine — untick to exclude.</span>
   </footer>
@@ -282,12 +284,18 @@ function stateOf2(locs){
   return "—";
 }
 
-function ageCell(days, posted){
+function ageCell(days, posted, approx){
   if (days === null || days === undefined)
     return '<span class="age unk" title="no posted date — never penalized">no date</span>';
   const cls = days <= 7 ? "fresh" : days <= 14 ? "ok" : days <= 28 ? "mid" : "stale";
-  const label = days < 100 ? days + "d" : Math.floor(days/30) + "mo";
-  return `<span class="age ${cls}" title="posted ${esc(posted)}">${label}</span>`;
+  const label = (days < 100 ? days + "d" : Math.floor(days/30) + "mo") + (approx ? "+" : "");
+  // approx: the ATS said "30+ days ago", so this is a LOWER BOUND. The role is at
+  // least this old and may be much older — shown with a trailing + rather than
+  // "no date", which is what it used to say for 8,245 roles whose age we knew.
+  const tip = approx
+    ? `posted on or before ${esc(posted)} — the site only says "30+ days ago"`
+    : `posted ${esc(posted)}`;
+  return `<span class="age ${cls}" title="${tip}">${label}</span>`;
 }
 
 let LOADED_AT = null;
@@ -468,7 +476,7 @@ const COLS = [
   ["applied","✓","applied"],
   ["queued","Res","queue a tailored resume"],
   ["active","Act","actively pursuing"],
-  ["closed","Cls","closed — always sorts to the bottom"],
+  ["closed","Cls","not interested / done — hidden from the board and the email"],
   [null,"",""],
 ];
 
@@ -506,7 +514,7 @@ function render(){
       <div class="c idx">${i + 1}</div>
       <div class="c rank">${Number(r.rank_score).toFixed(1)}</div>
       <div class="c fit num">${Number(r.fit_score).toFixed(1)}</div>
-      <div class="c">${ageCell(r.days_old, r.posted_at)}</div>
+      <div class="c">${ageCell(r.days_old, r.posted_at, r.posted_at_approx)}</div>
       <div class="c co" title="${esc(r.company)}">${esc(r.company)}</div>
       <div class="c ttl" title="${esc(r.title)}"><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a></div>
       <div class="c dim" title="${esc(r.seniority)}">${esc(r.seniority)}</div>
@@ -522,7 +530,7 @@ function render(){
       <div class="c ctl"><button class="mk act ${r.active ? "on" : ""}" data-role="${r.role_id}"
         data-kind="active" title="${r.active ? "active — click to undo" : "mark actively pursuing"}"></button></div>
       <div class="c ctl"><button class="mk cls ${r.closed ? "on" : ""}" data-role="${r.role_id}"
-        data-kind="closed" title="${r.closed ? "closed — click to reopen" : "close: finished or rejected"}"></button></div>
+        data-kind="closed" title="${r.closed ? "closed — click to reopen" : "Not interested, or done with it.\nHides from the board and stops it appearing in the digest."}"></button></div>
       <div class="c ctl"><button class="xbtn" data-detail="${i}">open</button></div>
       <div class="detail" data-panel="${i}" hidden>
         <div><b>${esc(r.company)}</b><p class="fulltitle">${esc(r.title)}</p></div>
@@ -619,7 +627,7 @@ const CSV_COLS = [
   ["Recency adj",  r => Number(r.recency_adj).toFixed(2)],
   ["Industry adj", r => Number(r.industry_adj ?? 0).toFixed(2)],
   ["Lane adj",     r => Number(r.lane_adj ?? 0).toFixed(2)],
-  ["Posted",       r => r.posted_at || ""],
+  ["Posted",       r => (r.posted_at || "") + (r.posted_at_approx ? " (or earlier)" : "")],
   ["Days old",     r => r.days_old ?? ""],
   ["Company",      r => r.company],
   ["Title",        r => r.title],
