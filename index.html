@@ -427,6 +427,22 @@ function visible(){
 // this the cell sits on "queued" until a manual refresh, which is what made the
 // button feel dead. Gives up after ~2 minutes; the state is still correct on the
 // next refresh either way.
+async function downloadResume(roleId) {
+  try {
+    const res = await fetch(`${API}/board?token=${encodeURIComponent(TOKEN)}&file=${roleId}`);
+    const d = await res.json();
+    if (!d.b64) { alert(d.error || "no file available yet"); return; }
+    const bytes = Uint8Array.from(atob(d.b64), c => c.charCodeAt(0));
+    const blob = new Blob([bytes], {type:
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document"});
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = d.filename || "Resume - Mohit Bhatia.docx";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  } catch (e) { alert("download failed: " + e.message); }
+}
+
 async function pollResume(roleId) {
   const started = Date.now();
   while (Date.now() - started < 120000) {
@@ -485,7 +501,7 @@ const RES_STATE = {
   send_as_is:      ["✓", "res asis",
     "SEND AS-IS — your existing resume already does the job here. No file needed."],
   worth_tailoring: ["✎", "res tailored",
-    "TAILORED — a .docx was generated and emailed to you."],
+    "TAILORED — click to download the .docx."],
   failed:          ["!", "res failed", "Generation failed."],
 };
 
@@ -603,6 +619,12 @@ async function mark(btn){
   const roleId = Number(btn.dataset.role);
   const kind = btn.dataset.kind;
   const rec = DATA.roles.find(r => r.role_id === roleId);
+  // A tailored resume's cell is a DOWNLOAD, not a toggle — un-queuing a role
+  // whose file already exists is never what a click there means.
+  if (kind === "queued" && rec.resumeState === "worth_tailoring" && rec.resumeFile) {
+    downloadResume(roleId);
+    return;
+  }
   const turningOn = !rec[kind];
   const ACTIONS = {           // [action when turning ON, action when turning OFF]
     applied: ["applied", "unapplied"],
