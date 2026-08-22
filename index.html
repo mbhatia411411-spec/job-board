@@ -130,6 +130,14 @@ select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline
 .mk.on{background:var(--apply);border-color:var(--apply);color:#fff}
 .mk.res:hover{border-color:var(--accent)}
 .mk.res.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.cos th.n,.cos td.n{text-align:right}
+.cos th[data-cok]{cursor:pointer;user-select:none}
+.cos th[data-cok]:hover{color:var(--accent)}
+.cos tbody tr{cursor:pointer}
+.cos tbody tr:hover{background:var(--hover)}
+.cos .co-name{font-weight:600;color:var(--accent)}
+.cos .quiet{color:var(--flag);font-weight:600}
+.cos .dim2{color:var(--ink-3)}
 .wk{font:11px/1 ui-monospace,Menlo,monospace;padding:5px 9px;border-radius:16px;
   border:1px solid var(--line);cursor:help;white-space:nowrap}
 .wk.on{color:var(--apply);border-color:var(--apply)}
@@ -207,6 +215,7 @@ footer{margin-top:18px;color:var(--ink-3);font-size:12px;display:flex;justify-co
   <div class="tabs">
     <button class="tab" id="t-live" aria-selected="true">Scored roles</button>
     <button class="tab" id="t-drop" aria-selected="false">Filtered out</button>
+    <button class="tab" id="t-co" aria-selected="false">Companies</button>
   </div>
 
   <div class="panel" id="p-live">
@@ -242,6 +251,24 @@ footer{margin-top:18px;color:var(--ink-3);font-size:12px;display:flex;justify-co
     <div style="overflow-x:auto"><table class="drops">
       <thead><tr><th>Company</th><th>Title</th><th>Locations</th><th>Rule</th><th>Reason</th></tr></thead>
       <tbody id="drop-body"></tbody></table></div>
+  </div>
+
+  <div class="panel" id="p-co" hidden>
+    <div class="note" id="co-note"></div>
+    <div style="overflow-x:auto"><table class="drops cos">
+      <thead><tr>
+        <th data-cok="company">Company</th>
+        <th data-cok="sector">Industry</th>
+        <th data-cok="ats_type">ATS</th>
+        <th data-cok="scraped" class="n">Scraped</th>
+        <th data-cok="dropped" class="n">Filtered</th>
+        <th data-cok="scored" class="n">Scored</th>
+        <th data-cok="strong" class="n">6.5+</th>
+        <th data-cok="best_score" class="n">Best</th>
+        <th data-cok="applied" class="n">Applied</th>
+        <th data-cok="days_since_new" class="n">Last new</th>
+      </tr></thead>
+      <tbody id="co-body"></tbody></table></div>
   </div>
 
   <footer>
@@ -758,13 +785,101 @@ $("refresh").addEventListener("click", async () => {
   catch (e) { alert("Could not refresh — " + e.message); }
   b.textContent = "Refresh"; b.disabled = false;
 });
+// ---- Companies tab -------------------------------------------------------
+// A per-company rollup, and the second net under a silently broken scraper:
+// "last new" going quiet for weeks looks the same as a company that stopped
+// hiring, and only this view makes the difference visible.
+let COSORT = {key: "strong", dir: -1};
+
+function renderCompanies() {
+  const rows = [...(DATA.companies || [])];
+  const k = COSORT.key, dir = COSORT.dir;
+  rows.sort((a, b) => {
+    let x = a[k], y = b[k];
+    if (k === "days_since_new") { x = x ?? 1e9; y = y ?? 1e9; }   // never-seen sorts last
+    if (typeof x === "string") return x.localeCompare(y) * dir;
+    return ((x ?? 0) - (y ?? 0)) * dir;
+  });
+  const tot = rows.reduce((a, r) => ({
+    scraped: a.scraped + (r.scraped || 0), scored: a.scored + (r.scored || 0),
+    strong: a.strong + (r.strong || 0), dropped: a.dropped + (r.dropped || 0),
+  }), {scraped: 0, scored: 0, strong: 0, dropped: 0});
+  $("co-note").innerHTML =
+    `<b>${rows.length}</b> active companies · <b>${tot.scraped.toLocaleString()}</b> roles seen · ` +
+    `<b>${tot.dropped.toLocaleString()}</b> filtered out · <b>${tot.scored.toLocaleString()}</b> scored · ` +
+    `<b>${tot.strong}</b> at 6.5+. Click a company to see its roles. ` +
+    `A red "last new" means nothing new for 14+ days — often a broken scraper rather than a quiet employer.`;
+
+  $("co-body").innerHTML = rows.map(r => {
+    const d = r.days_since_new;
+    const age = d === null || d === undefined ? "never"
+              : d === 0 ? "today" : d === 1 ? "yesterday" : `${d}d ago`;
+    const stale = (d === null || d === undefined || d >= 14) ? " quiet" : "";
+    return `<tr data-co="${esc(r.company)}" title="Click to filter the board to ${esc(r.company)}">
+      <td class="co-name">${esc(r.company)}</td>
+      <td class="dim2">${esc(r.sector || "—")}</td>
+      <td class="dim2">${esc(r.ats_type)}</td>
+      <td class="n dim2">${(r.scraped || 0).toLocaleString()}</td>
+      <td class="n dim2">${(r.dropped || 0).toLocaleString()}</td>
+      <td class="n">${r.scored || 0}</td>
+      <td class="n">${r.strong || 0}</td>
+      <td class="n">${r.best_score ?? "—"}</td>
+      <td class="n">${r.applied || 0}</td>
+      <td class="n${stale}">${age}</td></tr>`;
+  }).join("");
+}
+
+// Click a company -> jump to the roles tab filtered to just that company.
+// Drives the SAME multi-select widgets the filter bar uses (ticking exactly one
+// company box), so the UI state and the filter state cannot disagree.
+function showCompany(name) {
+  document.querySelectorAll(".msel").forEach(el => {
+    const cfg = MSELS.find(c => c.id === el.id);
+    const values = [...new Set(DATA.roles.map(cfg.get))].filter(Boolean);
+    const only = cfg.key === "company";
+    el.querySelectorAll(".msel-list input").forEach(b => {
+      b.checked = only ? b.value === name : true;
+    });
+    F[cfg.key] = new Set(only ? [name] : values);
+    const btn = el.querySelector(".msel-btn");
+    btn.textContent = only ? name : `All ${cfg.label}`;
+    btn.classList.toggle("active", only);
+  });
+  // clear the other narrowing filters so the company view is complete
+  Object.assign(F, {q: "", age: 0, fresh: false, apply: false, flagged: false,
+                    open: false, activeOnly: false, hideClosed: true});
+  $("q").value = ""; $("f-age").value = "";
+  document.querySelectorAll(".chip[data-f]").forEach(c =>
+    c.setAttribute("aria-pressed", String(c.dataset.f === "hideClosed")));
+  $("t-live").click();
+  render();
+}
+
+document.addEventListener("click", e => {
+  const th = e.target.closest(".cos th[data-cok]");
+  if (th) {
+    const k = th.dataset.cok;
+    COSORT = {key: k, dir: COSORT.key === k ? -COSORT.dir : (k === "company" ? 1 : -1)};
+    renderCompanies();
+    return;
+  }
+  const tr = e.target.closest(".cos tbody tr");
+  if (tr) showCompany(tr.dataset.co);
+});
+
+$("t-co").addEventListener("click", () => {
+  ["t-live","t-drop","t-co"].forEach(t => $(t).setAttribute("aria-selected", String(t === "t-co")));
+  $("p-co").hidden = false; $("p-live").hidden = true; $("p-drop").hidden = true;
+  renderCompanies();
+});
+
 $("t-live").addEventListener("click", () => {
-  $("t-live").setAttribute("aria-selected","true"); $("t-drop").setAttribute("aria-selected","false");
-  $("p-live").hidden = false; $("p-drop").hidden = true;
+  ["t-live","t-drop","t-co"].forEach(t => $(t).setAttribute("aria-selected", String(t === "t-live")));
+  $("p-live").hidden = false; $("p-drop").hidden = true; $("p-co").hidden = true;
 });
 $("t-drop").addEventListener("click", () => {
-  $("t-drop").setAttribute("aria-selected","true"); $("t-live").setAttribute("aria-selected","false");
-  $("p-drop").hidden = false; $("p-live").hidden = true;
+  ["t-live","t-drop","t-co"].forEach(t => $(t).setAttribute("aria-selected", String(t === "t-drop")));
+  $("p-drop").hidden = false; $("p-live").hidden = true; $("p-co").hidden = true;
 });
 
 // ---- token: URL fragment on first visit, then remembered in this browser ----
