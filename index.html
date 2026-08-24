@@ -136,7 +136,8 @@ select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline
 .cos tbody tr{cursor:pointer}
 .cos tbody tr:hover{background:var(--hover)}
 .cos .co-name{font-weight:600;color:var(--accent)}
-.cos .quiet{color:var(--flag);font-weight:600}
+.cos .quiet,.quiet{color:var(--flag);font-weight:600}
+.cos .ok{color:var(--apply)}
 .cos .dim2{color:var(--ink-3)}
 .wk{font:11px/1 ui-monospace,Menlo,monospace;padding:5px 9px;border-radius:16px;
   border:1px solid var(--line);cursor:help;white-space:nowrap}
@@ -260,7 +261,8 @@ footer{margin-top:18px;color:var(--ink-3);font-size:12px;display:flex;justify-co
         <th data-cok="company">Company</th>
         <th data-cok="sector">Industry</th>
         <th data-cok="ats_type">ATS</th>
-        <th data-cok="scraped" class="n">Scraped</th>
+        <th data-cok="endpoint_ok">Status</th>
+        <th data-cok="open_roles" class="n">Open</th>
         <th data-cok="dropped" class="n">Filtered</th>
         <th data-cok="scored" class="n">Scored</th>
         <th data-cok="strong" class="n">6.5+</th>
@@ -789,7 +791,7 @@ $("refresh").addEventListener("click", async () => {
 // A per-company rollup, and the second net under a silently broken scraper:
 // "last new" going quiet for weeks looks the same as a company that stopped
 // hiring, and only this view makes the difference visible.
-let COSORT = {key: "strong", dir: -1};
+let COSORT = {key: "open_roles", dir: -1};
 
 function renderCompanies() {
   const rows = [...(DATA.companies || [])];
@@ -803,23 +805,36 @@ function renderCompanies() {
   const tot = rows.reduce((a, r) => ({
     scraped: a.scraped + (r.scraped || 0), scored: a.scored + (r.scored || 0),
     strong: a.strong + (r.strong || 0), dropped: a.dropped + (r.dropped || 0),
-  }), {scraped: 0, scored: 0, strong: 0, dropped: 0});
+    open: a.open + (r.open_roles || 0),
+  }), {scraped: 0, scored: 0, strong: 0, dropped: 0, open: 0});
+  const down = rows.filter(r => r.endpoint_ok === false).length;
   $("co-note").innerHTML =
-    `<b>${rows.length}</b> active companies · <b>${tot.scraped.toLocaleString()}</b> roles seen · ` +
-    `<b>${tot.dropped.toLocaleString()}</b> filtered out · <b>${tot.scored.toLocaleString()}</b> scored · ` +
-    `<b>${tot.strong}</b> at 6.5+. Click a company to see its roles. ` +
-    `A red "last new" means nothing new for 14+ days — often a broken scraper rather than a quiet employer.`;
+    `<b>${rows.length}</b> active companies · <b>${tot.open.toLocaleString()}</b> roles open now ` +
+    `(${tot.scraped.toLocaleString()} seen all-time) · <b>${tot.scored.toLocaleString()}</b> scored · ` +
+    `<b>${tot.strong}</b> at 6.5+ · ` +
+    (down ? `<b class="quiet">${down} endpoint(s) DOWN</b>` : `all endpoints live`) +
+    `. Click a company to see its roles. <b>Open</b> counts roles still being seen by the ` +
+    `scraper and still passing the filters — zero is normal for a company with nothing ` +
+    `senior posted, which is why Status comes from probing the endpoint directly.`;
 
   $("co-body").innerHTML = rows.map(r => {
     const d = r.days_since_new;
     const age = d === null || d === undefined ? "never"
               : d === 0 ? "today" : d === 1 ? "yesterday" : `${d}d ago`;
     const stale = (d === null || d === undefined || d >= 14) ? " quiet" : "";
+    // Status comes from the endpoint PROBE, not inferred from role counts:
+    // five companies once showed zero open roles while answering perfectly —
+    // they just had nothing passing the filters that week.
+    const okv = r.endpoint_ok;
+    const stat = okv === true ? `<span class="ok">live</span>`
+               : okv === false ? `<span class="quiet">DOWN</span>`
+               : `<span class="dim2">—</span>`;
     return `<tr data-co="${esc(r.company)}" title="Click to filter the board to ${esc(r.company)}">
       <td class="co-name">${esc(r.company)}</td>
       <td class="dim2">${esc(r.sector || "—")}</td>
       <td class="dim2">${esc(r.ats_type)}</td>
-      <td class="n dim2">${(r.scraped || 0).toLocaleString()}</td>
+      <td title="${esc(r.endpoint_detail || "not probed yet")}">${stat}</td>
+      <td class="n" title="${(r.scraped || 0).toLocaleString()} seen all-time">${(r.open_roles || 0).toLocaleString()}</td>
       <td class="n dim2">${(r.dropped || 0).toLocaleString()}</td>
       <td class="n">${r.scored || 0}</td>
       <td class="n">${r.strong || 0}</td>
