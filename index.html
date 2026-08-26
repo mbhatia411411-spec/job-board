@@ -318,15 +318,22 @@ function stateOf2(locs){
   return "—";
 }
 
-function ageCell(days, posted, approx){
+function ageCell(days, posted, approx, reposted){
   if (days === null || days === undefined)
     return '<span class="age unk" title="no posted date — never penalized">no date</span>';
   const cls = days <= 7 ? "fresh" : days <= 14 ? "ok" : days <= 28 ? "mid" : "stale";
-  const label = (days < 100 ? days + "d" : Math.floor(days/30) + "mo") + (approx ? "+" : "");
+  // "↻" = the employer refreshed the posting date. Age counts from when WE first
+  // saw it, so a repost cannot vault a month-old role back to the top; the marker
+  // explains why our age and the careers page's "Posted Yesterday" disagree.
+  const label = (days < 100 ? days + "d" : Math.floor(days/30) + "mo")
+              + (approx ? "+" : "") + (reposted ? " \u21bb" : "");
   // approx: the ATS said "30+ days ago", so this is a LOWER BOUND. The role is at
   // least this old and may be much older — shown with a trailing + rather than
   // "no date", which is what it used to say for 8,245 roles whose age we knew.
-  const tip = approx
+  const tip = reposted
+    ? `the employer re-dated this to ${esc(posted)}, but it has been on your board `
+      + `for ${days} days — age counts from when we first saw it`
+    : approx
     ? `posted on or before ${esc(posted)} — the site only says "30+ days ago"`
     : `posted ${esc(posted)}`;
   return `<span class="age ${cls}" title="${tip}">${label}</span>`;
@@ -612,7 +619,7 @@ function render(){
       <div class="c idx">${i + 1}</div>
       <div class="c rank">${Number(r.rank_score).toFixed(1)}</div>
       <div class="c fit num">${Number(r.fit_score).toFixed(1)}</div>
-      <div class="c">${ageCell(r.days_old, r.posted_at, r.posted_at_approx)}</div>
+      <div class="c">${ageCell(r.days_old, r.posted_at, r.posted_at_approx, r.reposted)}</div>
       <div class="c co" title="${esc(r.company)}">${esc(r.company)}</div>
       <div class="c ttl" title="${esc(r.title)}"><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a></div>
       <div class="c dim" title="${esc(r.seniority)}">${esc(r.seniority)}</div>
@@ -734,7 +741,9 @@ const CSV_COLS = [
   ["Recency adj",  r => Number(r.recency_adj).toFixed(2)],
   ["Industry adj", r => Number(r.industry_adj ?? 0).toFixed(2)],
   ["Lane adj",     r => Number(r.lane_adj ?? 0).toFixed(2)],
-  ["Posted",       r => (r.posted_at || "") + (r.posted_at_approx ? " (or earlier)" : "")],
+  ["Posted",       r => (r.posted_at || "") + (r.posted_at_approx ? " (or earlier)" : "")
+                                        + (r.reposted ? " (reposted)" : "")],
+  ["Days on board",r => r.days_old ?? ""],
   ["Days old",     r => r.days_old ?? ""],
   ["Company",      r => r.company],
   ["Title",        r => r.title],
