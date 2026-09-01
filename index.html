@@ -138,11 +138,13 @@ select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline
 .cos .co-name{font-weight:600;color:var(--accent)}
 .cos .quiet,.quiet{color:var(--flag);font-weight:600}
 .cos .ok{color:var(--apply)}
+.cos .pend{color:var(--maybe);font-weight:600}
 .cos .dim2{color:var(--ink-3)}
 .wk{font:11px/1 ui-monospace,Menlo,monospace;padding:5px 9px;border-radius:16px;
   border:1px solid var(--line);cursor:help;white-space:nowrap}
 .wk.on{color:var(--apply);border-color:var(--apply)}
 .wk.off{color:var(--flag);border-color:var(--flag)}
+.var.weak{background:var(--flag-bg);color:var(--flag);font-weight:600}
 .mk.res{font:600 11px/1 ui-monospace,Menlo,monospace}
 .mk.res.queued{background:var(--maybe);border-color:var(--maybe);color:#fff}
 .mk.res.asis{background:var(--apply);border-color:var(--apply);color:#fff}
@@ -261,6 +263,12 @@ footer{margin-top:18px;color:var(--ink-3);font-size:12px;display:flex;justify-co
   </div>
 
   <div class="panel" id="p-co" hidden>
+    <div class="bar" id="co-filters">
+      <button class="chip" data-cs="live" aria-pressed="true">Connected</button>
+      <button class="chip" data-cs="pending_config" aria-pressed="true">Needs config</button>
+      <button class="chip" data-cs="needs_adapter" aria-pressed="true">Needs adapter</button>
+      <button class="chip" data-cs="blocked" aria-pressed="true">Blocked</button>
+    </div>
     <div class="note" id="co-note"></div>
     <div style="overflow-x:auto"><table class="drops cos">
       <thead><tr>
@@ -322,6 +330,23 @@ function stateOf2(locs){
     if (/remote/i.test(l)) return "Remote";
   }
   return "—";
+}
+
+// The scorer is required to say whether the recommended resume is a REAL match or
+// merely the closest of several poor options. That verdict used to be discarded,
+// so every role showed a confident-looking recommendation. A ⚠ now marks the ones
+// where writing something new is the honest answer.
+function variantTip(r) {
+  const hits = r.keyword_hits;
+  const base = `Use the ${r.variant || "—"} resume`;
+  if (r.no_strong_variant)
+    return base + `\n\n⚠ WEAK MATCH — the scorer judged that nothing in your `
+         + `repository genuinely fits this role. Worth writing a new one rather than `
+         + `tailoring.\n${hits ?? "?"} of this variant's keywords appear in the posting.`;
+  if (r.no_strong_variant === false)
+    return base + `\n\nGenuine match — tailoring this variant is the right move.`
+         + `\n${hits ?? "?"} of its keywords appear in the posting.`;
+  return base + `\n\n(scored before match-strength was recorded — rescore to get a verdict)`;
 }
 
 function ageCell(days, posted, approx, reposted){
@@ -634,7 +659,9 @@ function render(){
       <div class="c" title="${esc((r.locations||[]).join("; "))}"><span class="pin">${esc(r._state)}</span></div>
       <div class="c dim" title="${esc(r.lane || "—")}">${esc(r._lane)}</div>
       <div class="c num">${sal}</div>
-      <div class="c" title="Use the ${esc(r.variant || "—")} resume"><span class="var">${esc(r.variant || "—")}</span></div>
+      <div class="c" title="${esc(variantTip(r))}"><span class="var${
+        r.no_strong_variant ? " weak" : ""}">${esc(r.variant || "—")}${
+        r.no_strong_variant ? " ⚠" : ""}</span></div>
       <div class="c flags">${flags}</div>
       <div class="c ctl"><button class="mk ${r.applied ? "on" : ""}" data-role="${r.role_id}"
         data-kind="applied" title="${r.applied ? "applied — click to undo" : "mark applied"}"></button></div>
@@ -762,6 +789,9 @@ const CSV_COLS = [
   ["Base min",     r => r.posted_salary_min ?? ""],
   ["Base max",     r => r.posted_salary_max ?? ""],
   ["Use resume",   r => r.variant || ""],
+  ["Match strength",r => r.no_strong_variant === true ? "WEAK - write a new one"
+                        : r.no_strong_variant === false ? "genuine match" : ""],
+  ["Keyword hits", r => r.keyword_hits ?? ""],
   ["Flags",        r => (r.signals || []).join(" | ")],
   ["Applied",      r => r.applied ? "yes" : ""],
   ["Resume",       r => (r.resumeState && r.resumeState !== "not_queued") ? r.resumeState : ""],
@@ -810,8 +840,11 @@ $("refresh").addEventListener("click", async () => {
 // hiring, and only this view makes the difference visible.
 let COSORT = {key: "open_roles", dir: -1};
 
+let COSTATUS = new Set(["live","pending_config","needs_adapter","blocked"]);
+
 function renderCompanies() {
-  const rows = [...(DATA.companies || [])];
+  const rows = (DATA.companies || []).filter(
+    r => COSTATUS.has(r.integration_status || "live"));
   const k = COSORT.key, dir = COSORT.dir;
   rows.sort((a, b) => {
     let x = a[k], y = b[k];
@@ -824,9 +857,14 @@ function renderCompanies() {
     strong: a.strong + (r.strong || 0), dropped: a.dropped + (r.dropped || 0),
     open: a.open + (r.open_roles || 0),
   }), {scraped: 0, scored: 0, strong: 0, dropped: 0, open: 0});
-  const down = rows.filter(r => r.endpoint_ok === false).length;
+  const all = DATA.companies || [];
+  const byStatus = s => all.filter(r => (r.integration_status || "live") === s).length;
+  const down = rows.filter(r => r.endpoint_ok === false && (r.integration_status||"live")==="live").length;
   $("co-note").innerHTML =
-    `<b>${rows.length}</b> active companies · <b>${tot.open.toLocaleString()}</b> roles open now ` +
+    `<b>${byStatus("live")}</b> connected · <b>${byStatus("pending_config")}</b> need config ` +
+    `(~10 min each, no new code) · <b>${byStatus("needs_adapter")}</b> need an adapter · ` +
+    `<b>${byStatus("blocked")}</b> blocked. ` +
+    `<b>${tot.open.toLocaleString()}</b> roles open now ` +
     `(${tot.scraped.toLocaleString()} seen all-time) · <b>${tot.scored.toLocaleString()}</b> scored · ` +
     `<b>${tot.strong}</b> at 6.5+ · ` +
     (down ? `<b class="quiet">${down} endpoint(s) DOWN</b>` : `all endpoints live`) +
@@ -842,15 +880,21 @@ function renderCompanies() {
     // Status comes from the endpoint PROBE, not inferred from role counts:
     // five companies once showed zero open roles while answering perfectly —
     // they just had nothing passing the filters that week.
+    // Connected companies report probe health; the rest report what is blocking
+    // them, so the tab can no longer say "all live" while 38 employers sit unseen.
+    const IS = r.integration_status || "live";
     const okv = r.endpoint_ok;
-    const stat = okv === true ? `<span class="ok">live</span>`
+    const stat = IS === "pending_config" ? `<span class="pend">needs config</span>`
+               : IS === "needs_adapter"  ? `<span class="pend">needs adapter</span>`
+               : IS === "blocked"        ? `<span class="dim2">blocked</span>`
+               : okv === true  ? `<span class="ok">live</span>`
                : okv === false ? `<span class="quiet">DOWN</span>`
                : `<span class="dim2">—</span>`;
     return `<tr data-co="${esc(r.company)}" title="Click to filter the board to ${esc(r.company)}">
       <td class="co-name">${esc(r.company)}</td>
       <td class="dim2">${esc(r.sector || "—")}</td>
       <td class="dim2">${esc(r.ats_type)}</td>
-      <td title="${esc(r.endpoint_detail || "not probed yet")}">${stat}</td>
+      <td title="${esc(r.blocked_reason || r.endpoint_detail || "not probed yet")}">${stat}</td>
       <td class="n" title="${(r.scraped || 0).toLocaleString()} seen all-time">${(r.open_roles || 0).toLocaleString()}</td>
       <td class="n dim2">${(r.dropped || 0).toLocaleString()}</td>
       <td class="n">${r.scored || 0}</td>
@@ -897,6 +941,14 @@ document.addEventListener("click", e => {
   }
   const tr = e.target.closest(".cos tbody tr");
   if (tr) showCompany(tr.dataset.co);
+});
+
+document.getElementById("co-filters").addEventListener("click", e => {
+  const b = e.target.closest(".chip[data-cs]"); if (!b) return;
+  const on = b.getAttribute("aria-pressed") === "true";
+  b.setAttribute("aria-pressed", String(!on));
+  COSTATUS[on ? "delete" : "add"](b.dataset.cs);
+  renderCompanies();
 });
 
 $("t-co").addEventListener("click", () => {
