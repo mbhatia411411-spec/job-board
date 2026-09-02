@@ -139,6 +139,7 @@ select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline
 .cos .quiet,.quiet{color:var(--flag);font-weight:600}
 .cos .ok{color:var(--apply)}
 .cos .pend{color:var(--maybe);font-weight:600}
+.cos .idle{color:var(--ink-3)}
 .cos .dim2{color:var(--ink-3)}
 .wk{font:11px/1 ui-monospace,Menlo,monospace;padding:5px 9px;border-radius:16px;
   border:1px solid var(--line);cursor:help;white-space:nowrap}
@@ -864,6 +865,9 @@ function renderCompanies() {
     `<b>${byStatus("live")}</b> connected · <b>${byStatus("pending_config")}</b> need config ` +
     `(~10 min each, no new code) · <b>${byStatus("needs_adapter")}</b> need an adapter · ` +
     `<b>${byStatus("blocked")}</b> blocked. ` +
+    `<b>${all.filter(r => (r.integration_status||"live")==="live" && !(r.scraped>0)).length}</b> ` +
+    `connected but nothing qualifying yet ("no fit yet") &mdash; healthy endpoints ` +
+    `whose boards carry no senior roles today. ` +
     `<b>${tot.open.toLocaleString()}</b> roles open now ` +
     `(${tot.scraped.toLocaleString()} seen all-time) · <b>${tot.scored.toLocaleString()}</b> scored · ` +
     `<b>${tot.strong}</b> at 6.5+ · ` +
@@ -884,17 +888,27 @@ function renderCompanies() {
     // them, so the tab can no longer say "all live" while 38 employers sit unseen.
     const IS = r.integration_status || "live";
     const okv = r.endpoint_ok;
+    // "live" next to 0 open and "never" read as broken when it meant "working,
+    // nothing at your level" — Hearst was serving [TEMPLATE] and [TEST] postings,
+    // Seatgeek was all Manager-level. Split into two labels so a healthy company
+    // with nothing qualifying stops looking like a fault.
     const stat = IS === "pending_config" ? `<span class="pend">needs config</span>`
                : IS === "needs_adapter"  ? `<span class="pend">needs adapter</span>`
                : IS === "blocked"        ? `<span class="dim2">blocked</span>`
-               : okv === true  ? `<span class="ok">live</span>`
                : okv === false ? `<span class="quiet">DOWN</span>`
-               : `<span class="dim2">—</span>`;
-    return `<tr data-co="${esc(r.company)}" title="Click to filter the board to ${esc(r.company)}">
+               : okv !== true  ? `<span class="dim2">—</span>`
+               : (r.scraped || 0) > 0 ? `<span class="ok">live</span>`
+               : `<span class="idle">no fit yet</span>`;
+    const tip = IS !== "live" ? (r.blocked_reason || "")
+              : (r.scraped || 0) > 0 ? (r.endpoint_detail || "")
+              : `Endpoint is healthy (${r.endpoint_detail || "responding"}), but nothing on `
+                + `their board has passed the seniority and location filters yet. `
+                + `Normal for a company with no senior roles posted.`;
+    return `<tr data-co="${esc(r.company)}" title="${esc(tip)}">
       <td class="co-name">${esc(r.company)}</td>
       <td class="dim2">${esc(r.sector || "—")}</td>
       <td class="dim2">${esc(r.ats_type)}</td>
-      <td title="${esc(r.blocked_reason || r.endpoint_detail || "not probed yet")}">${stat}</td>
+      <td>${stat}</td>
       <td class="n" title="${(r.scraped || 0).toLocaleString()} seen all-time">${(r.open_roles || 0).toLocaleString()}</td>
       <td class="n dim2">${(r.dropped || 0).toLocaleString()}</td>
       <td class="n">${r.scored || 0}</td>
