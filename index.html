@@ -646,7 +646,7 @@ function render(){
     const flags = (r.signals || []).length
       ? r.signals.map(s => `<span class="flag" title="${esc(s)}">${esc(s.split("—")[0].trim().slice(0,20))}</span>`).join("")
       : '<span class="dim">—</span>';
-    const adj = Number(r.recency_adj);
+    const adj = Number(r.recency_pts ?? 0);
     const adjTxt = adj ? ` · ${adj > 0 ? "+" : ""}${adj.toFixed(2)} recency → ${Number(r.rank_score).toFixed(1)} rank` : "";
     return `<div class="row ${r._band}${r.closed ? " closed" : ""}${r.likely_gone ? " gone" : ""}">
       <div class="c idx">${i + 1}</div>
@@ -773,9 +773,10 @@ const CSV_COLS = [
   ["#",            (r,i) => i + 1],
   ["Rank",         r => Number(r.rank_score).toFixed(2)],
   ["Fit",          r => Number(r.fit_score).toFixed(1)],
-  ["Recency adj",  r => Number(r.recency_adj).toFixed(2)],
-  ["Industry adj", r => Number(r.industry_adj ?? 0).toFixed(2)],
-  ["Lane adj",     r => Number(r.lane_adj ?? 0).toFixed(2)],
+  ["Industry (1-3)", r => r.industry_pts ?? ""],
+  ["Job fit (1-3)",  r => r.lane_fit_pts ?? ""],
+  ["Recency (1-3)",  r => r.recency_pts ?? ""],
+  ["Title (1-3)",    r => r.title_pts ?? ""],
   ["Posted",       r => (r.posted_at || "") + (r.posted_at_approx ? " (or earlier)" : "")
                                         + (r.reposted ? " (reposted)" : "")],
   ["Days on board",r => r.days_old ?? ""],
