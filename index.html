@@ -618,8 +618,8 @@ const COLS = [
   ["sector","Industry",""],["_state","Loc",""],["_lane","Function",""],
   ["posted_salary_max","Base max",""],["variant","Use resume",""],
   [null,"Flags",""],
-  ["backlog","Bklg","intending to apply"],
   ["applied","✓","applied"],
+  ["backlog","Bklg","intending to apply"],
   ["queued","Res","queue a tailored resume"],
   ["active","Act","actively pursuing"],
   ["closed","Cls","not interested / done — hidden from the board and the email"],
@@ -674,12 +674,12 @@ function render(){
         r.no_strong_variant ? " weak" : ""}">${esc(r.variant || "—")}${
         r.no_strong_variant ? " ⚠" : ""}</span></div>
       <div class="c flags">${flags}</div>
+      <div class="c ctl"><button class="mk ${r.applied ? "on" : ""}" data-role="${r.role_id}"
+        data-kind="applied" title="${r.applied ? "applied — click to undo" : "mark applied"}"></button></div>
       <div class="c ctl"><button class="mk bklg ${r.backlog ? "on" : ""}" data-role="${r.role_id}"
         data-kind="backlog" ${r.applied ? "disabled" : ""} title="${
           r.applied ? "already applied — backlog no longer applies"
           : r.backlog ? "on your backlog — click to remove" : "add to backlog: intending to apply"}"></button></div>
-      <div class="c ctl"><button class="mk ${r.applied ? "on" : ""}" data-role="${r.role_id}"
-        data-kind="applied" title="${r.applied ? "applied — click to undo" : "mark applied"}"></button></div>
       <div class="c ctl">${resCell(r)}</div>
       <div class="c ctl"><button class="mk act ${r.active ? "on" : ""}" data-role="${r.role_id}"
         data-kind="active" title="${r.active ? "active — click to undo" : "mark actively pursuing"}"></button></div>
