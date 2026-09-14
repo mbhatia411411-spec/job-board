@@ -83,7 +83,7 @@ select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline
 .grow{flex:1} .count{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--ink-3)}
 .tbl{display:flex;flex-direction:column;overflow-x:auto}
 .hd,.row{display:grid;
-  grid-template-columns:34px 50px 44px 74px 124px minmax(240px,1.7fr) 92px 100px 56px 110px 96px 134px 100px 50px 50px 50px 50px 58px;
+  grid-template-columns:34px 50px 44px 74px 124px minmax(240px,1.7fr) 92px 100px 56px 110px 96px 134px 100px 50px 50px 50px 50px 50px 58px;
   align-items:center;min-width:1620px}
 .hd{position:sticky;top:0;z-index:2;background:var(--surface);border-bottom:1.5px solid var(--line)}
 .hd button{font:inherit;font-size:10px;text-transform:uppercase;letter-spacing:.06em;font-weight:600;
@@ -152,6 +152,11 @@ select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline
 .mk.res.tailored{background:var(--accent);border-color:var(--accent);color:#fff}
 .mk.res.failed{background:var(--flag);border-color:var(--flag);color:#fff}
 .mk.act:hover{border-color:var(--maybe)} .mk.act.on{background:var(--maybe);border-color:var(--maybe);color:#fff}
+.mk.bklg::after{content:"☰"} .mk.bklg:hover{border-color:var(--accent)}
+.mk.bklg.on{background:var(--accent);border-color:var(--accent);color:#fff}
+/* applied and backlog can't both be true: once applied, the backlog control is inert */
+.mk.bklg:disabled{opacity:.28;cursor:not-allowed;border-style:dashed}
+.mk.bklg:disabled:hover{border-color:var(--line)}
 .mk.cls:hover{border-color:var(--ink-3)} .mk.cls.on{background:var(--ink-3);border-color:var(--ink-3);color:#fff}
 .mk.busy{opacity:.45;cursor:progress}
 /* Closed roles stay visible but recede — dimmed, and always sorted last no matter
@@ -216,6 +221,7 @@ footer{margin-top:18px;color:var(--ink-3);font-size:12px;display:flex;justify-co
       <div class="stat new"><span class="n" id="s-fresh">–</span><div class="k">fresh ≤7d</div></div>
       <div class="stat done"><span class="n" id="s-applied">–</span><div class="k">applied</div></div>
       <div class="stat queue"><span class="n" id="s-queued">–</span><div class="k">resume queued</div></div>
+      <div class="stat"><span class="n" id="s-backlog">–</span><div class="k">backlog</div></div>
       <div class="stat"><span class="n" id="s-active">–</span><div class="k">active</div></div>
     </div>
   </header>
@@ -242,6 +248,7 @@ footer{margin-top:18px;color:var(--ink-3);font-size:12px;display:flex;justify-co
       <button class="chip" data-f="apply" aria-pressed="false">≥6.5</button>
       <button class="chip" data-f="flagged" aria-pressed="false">Flagged</button>
       <button class="chip" data-f="open" aria-pressed="false">Not applied</button>
+      <button class="chip" data-f="backlogOnly" aria-pressed="false">Backlog</button>
       <button class="chip" data-f="activeOnly" aria-pressed="false">Active</button>
       <button class="chip" data-f="hideClosed" aria-pressed="true">Hide closed</button>
       <button class="chip" data-f="hideGone" aria-pressed="true"
@@ -305,7 +312,7 @@ let DATA = null;
 // ticked on load, so the default is "show all" and unticking is how you exclude —
 // which is the only way to express "every industry except banking".
 const F = {q:"", age:0, fresh:false, apply:false, flagged:false, open:false,
-           activeOnly:false, hideClosed:true, hideGone:true,
+           backlogOnly:false, activeOnly:false, hideClosed:true, hideGone:true,
            company:new Set(), sector:new Set(), state:new Set(), sen:new Set(), lane:new Set()};
 const MSELS = [
   {key:"company", id:"m-company", label:"companies", get:r => r.company,     search:true},
@@ -486,6 +493,7 @@ function visible(){
     if (F.flagged && !(r.signals || []).length) return false;
     if (F.open && r.applied) return false;
     if (F.activeOnly && !r.active) return false;
+    if (F.backlogOnly && !r.backlog) return false;
     if (F.hideClosed && r.closed) return false;
     if (F.hideGone && r.likely_gone) return false;
     return true;
@@ -589,7 +597,7 @@ function sorted(list){
     if (k === "rank_score" || k === "fit_score") return Number(r[k]) || 0;
     if (k === "days_old") return r.days_old === null ? 1e9 : r.days_old;
     if (k === "posted_salary_max") return r.posted_salary_max || 0;
-    if (["applied","queued","active","closed"].includes(k)) return r[k] ? 1 : 0;
+    if (["applied","queued","active","closed","backlog"].includes(k)) return r[k] ? 1 : 0;
     if (k === "_state" || k === "_lane") return (r[k] || "").toLowerCase();
     return String(r[k] ?? "").toLowerCase();
   };
@@ -610,6 +618,7 @@ const COLS = [
   ["sector","Industry",""],["_state","Loc",""],["_lane","Function",""],
   ["posted_salary_max","Base max",""],["variant","Use resume",""],
   [null,"Flags",""],
+  ["backlog","Bklg","intending to apply"],
   ["applied","✓","applied"],
   ["queued","Res","queue a tailored resume"],
   ["active","Act","actively pursuing"],
@@ -628,6 +637,7 @@ function render(){
   $("s-applied").textContent = list.filter(r => r.applied).length;
   $("s-queued").textContent = list.filter(r => r.queued).length;
   $("s-active").textContent = list.filter(r => r.active).length;
+  $("s-backlog").textContent = list.filter(r => r.backlog).length;
   workerBadge();
 
   // a dot marks any column whose filter is narrowing the view, so the bar and the
@@ -664,6 +674,10 @@ function render(){
         r.no_strong_variant ? " weak" : ""}">${esc(r.variant || "—")}${
         r.no_strong_variant ? " ⚠" : ""}</span></div>
       <div class="c flags">${flags}</div>
+      <div class="c ctl"><button class="mk bklg ${r.backlog ? "on" : ""}" data-role="${r.role_id}"
+        data-kind="backlog" ${r.applied ? "disabled" : ""} title="${
+          r.applied ? "already applied — backlog no longer applies"
+          : r.backlog ? "on your backlog — click to remove" : "add to backlog: intending to apply"}"></button></div>
       <div class="c ctl"><button class="mk ${r.applied ? "on" : ""}" data-role="${r.role_id}"
         data-kind="applied" title="${r.applied ? "applied — click to undo" : "mark applied"}"></button></div>
       <div class="c ctl">${resCell(r)}</div>
@@ -702,6 +716,7 @@ async function mark(btn){
     queued:  ["queued", "unqueued"],
     active:  ["active", "inactive"],
     closed:  ["closed", "reopened"],
+    backlog: ["backlog", "unbacklog"],
   };
   const action = ACTIONS[kind][turningOn ? 0 : 1];
   btn.classList.add("busy");
@@ -709,6 +724,7 @@ async function mark(btn){
     const res = await fetch(`${API}/mark?role=${roleId}&action=${action}&token=${encodeURIComponent(TOKEN)}`);
     if (!res.ok) throw new Error("HTTP " + res.status);
     rec[kind] = turningOn;
+    if (kind === "applied" && turningOn) rec.backlog = false;   // server clears it too
     if (kind === "queued") {
       rec.resumeState = turningOn ? "queued" : "not_queued";
       if (turningOn) pollResume(roleId);
@@ -751,7 +767,7 @@ $("q").addEventListener("input", e => { F.q = e.target.value.toLowerCase().trim(
 $("f-age").addEventListener("change", e => { F.age = parseInt(e.target.value,10) || 0; render(); });
 $("reset").addEventListener("click", () => {
   Object.assign(F, {q:"", age:0, fresh:false, apply:false, flagged:false, open:false,
-                    activeOnly:false, hideClosed:true, hideGone:true});
+                    backlogOnly:false, activeOnly:false, hideClosed:true, hideGone:true});
   document.querySelectorAll(".msel-list input").forEach(b => b.checked = true);
   document.querySelectorAll(".msel").forEach(el => {
     const cfg = MSELS.find(c => c.id === el.id);
@@ -938,7 +954,7 @@ function showCompany(name) {
   });
   // clear the other narrowing filters so the company view is complete
   Object.assign(F, {q: "", age: 0, fresh: false, apply: false, flagged: false,
-                    open: false, activeOnly: false, hideClosed: true, hideGone: true});
+                    open: false, backlogOnly: false, activeOnly: false, hideClosed: true, hideGone: true});
   $("q").value = ""; $("f-age").value = "";
   document.querySelectorAll(".chip[data-f]").forEach(c =>
     c.setAttribute("aria-pressed", String(["hideClosed","hideGone"].includes(c.dataset.f))));
