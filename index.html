@@ -289,9 +289,9 @@ footer{margin-top:18px;color:var(--ink-3);font-size:12px;display:flex;justify-co
   </div>
 
   <footer>
-    <span>Rank = fit ± recency (≤7d +1.00, ≤14d +0.50, 29-60d −0.75, 61-120d −1.75,
-      121-180d −3.00, 180d+ −5.00; no date is never penalized. A trailing "+" means the
-      site only gives a lower bound).
+    <span>Rank = (industry×2 + lane fit×1.25 + recency×1.5 + title×1) ÷ 1.725, each
+      scored 1–3; capped at 5.0 when lane fit is 1 (off-lane). A trailing "+" on the
+      date means the site only gives a lower bound; ↻ means reposted.
       Clicking ✓ or Res writes straight to the database.</span>
     <span>Filters combine — untick to exclude.</span>
   </footer>
