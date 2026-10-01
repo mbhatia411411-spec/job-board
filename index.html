@@ -500,10 +500,10 @@ function visible(){
   });
 }
 
-// After queuing, poll the board until the local worker posts a verdict. Without
-// this the cell sits on "queued" until a manual refresh, which is what made the
-// button feel dead. Gives up after ~2 minutes; the state is still correct on the
-// next refresh either way.
+// After queuing, poll until a verdict appears. Without this the cell sits on
+// "queued" until a manual refresh, which is what made the button feel dead.
+// The cloud build is checkout + deps + generate, so it needs longer than the
+// old local worker did — see POLL_FOR_MS.
 async function downloadResume(roleId) {
   try {
     const res = await fetch(`${API}/board?token=${encodeURIComponent(TOKEN)}&file=${roleId}`);
@@ -520,46 +520,57 @@ async function downloadResume(roleId) {
   } catch (e) { alert("download failed: " + e.message); }
 }
 
+// A cloud build is checkout + deps + generate, so give it room: six minutes,
+// not the two the old local worker needed. Backs off from 3s to 10s so a slow
+// build does not mean 120 requests, and asks for ONE role rather than the whole
+// board — watching a single cell used to refetch 2,600 roles forty times.
+const POLL_FOR_MS = 360000;
+
 async function pollResume(roleId) {
   const started = Date.now();
-  while (Date.now() - started < 120000) {
-    await new Promise(r => setTimeout(r, 3000));
-    let data;
+  let wait = 3000;
+  while (Date.now() - started < POLL_FOR_MS) {
+    await new Promise(r => setTimeout(r, wait));
+    wait = Math.min(wait * 1.4, 10000);
+    let d;
     try {
-      const res = await fetch(`${API}/board?token=${encodeURIComponent(TOKEN)}`,
-                              {cache: "no-store"});
-      data = await res.json();
+      const res = await fetch(
+        `${API}/board?token=${encodeURIComponent(TOKEN)}&resume=${roleId}`,
+        {cache: "no-store"});
+      d = await res.json();
     } catch { continue; }
-    DATA.worker = data.worker || DATA.worker;
-    const fresh = (data.roles || []).find(r => r.role_id === roleId);
+    if (DATA.worker) DATA.worker.pending = d.pending;
     const rec = DATA.roles.find(r => r.role_id === roleId);
-    if (!fresh || !rec) continue;
-    Object.assign(rec, {
-      resumeState: fresh.resumeState, resumeWhy: fresh.resumeWhy,
-      resumeFile: fresh.resumeFile,
-    });
+    if (!rec) continue;
+    Object.assign(rec, {resumeState: d.state, resumeWhy: d.why, resumeFile: d.file});
     render();
     workerBadge();
-    if (fresh.resumeState !== "queued") return;   // done, one way or the other
+    if (d.state && d.state !== "queued") return;   // done, one way or the other
   }
 }
 
-// A queued role with no worker listening is the failure this badge exists to
-// prevent — it is stated plainly rather than left to look like a broken button.
+// Generation runs in the cloud now, so there is no "worker" whose absence
+// matters — a tick always starts something. The badge therefore reports the
+// QUEUE, which is the thing that can actually be wrong: items sitting unbuilt.
+//
+// The old badge reported a laptop heartbeat, and on 2026-10-01 said "offline"
+// while the process had been up 21 days; it just had not beaten in 9.5 hours
+// because the Mac was asleep. Reporting the queue cannot lie that way.
 function workerBadge() {
   const el = $("worker");
   if (!el) return;
   const w = DATA.worker || {};
-  if (w.online) {
-    el.textContent = w.pending ? `resume worker · generating ${w.pending}` : "resume worker · ready";
+  const pending = Number(w.pending || 0);
+  if (pending > 0) {
+    el.textContent = `resumes · building ${pending}`;
     el.className = "wk on";
-    el.title = "The local worker is running. Tick Res and the file arrives in ~30s.";
+    el.title = "Queued and generating in the cloud. Usually ready in 2-3 minutes;\n"
+             + "the cell turns into a download when it lands.";
   } else {
-    el.textContent = "resume worker · offline";
-    el.className = "wk off";
-    el.title = "Nothing is listening for Res ticks. On your laptop run:\n"
-             + "  python -m agent resume --watch\n"
-             + "Roles you tick stay queued and generate as soon as it starts.";
+    el.textContent = "resumes · idle";
+    el.className = "wk on";
+    el.title = "Nothing queued. Tick Res on a role and it builds in the cloud,\n"
+             + "normally ready in 2-3 minutes.";
   }
 }
 
