@@ -590,9 +590,9 @@ const RES_STATE = {
     "QUEUED — but nothing started it, so it will be built by the 6:15am run.\n"
     + "Instant builds need GH_DISPATCH_TOKEN set in Supabase.\nClick again to cancel."],
   send_as_is:      ["✓", "res asis",
-    "SEND AS-IS — your existing resume already does the job here. No file needed."],
+    "SEND AS-IS — your existing variant already does the job here.\nClick to download that variant. 'rebuild resume' in the detail panel forces a fresh pass."],
   worth_tailoring: ["✎", "res tailored",
-    "TAILORED — click to download the .docx."],
+    "TAILORED — click to download the .docx.\n'rebuild resume' in the detail panel forces a fresh pass."],
   failed:          ["!", "res failed", "Generation failed."],
 };
 
@@ -706,11 +706,38 @@ function render(){
         <div><b>Why the ${esc(r.variant || "—")} resume</b><p>${esc(r.variant_match_reasoning)}</p></div>
         <div><b>Gaps to close first</b><p>${esc(r.gaps)}</p></div>
         <div class="dline"><span>${esc((r.locations||[]).join("; ").slice(0,80))}</span>
-          <span>posted ${esc(r.posted_at || "unknown")}</span></div>
+          <span>posted ${esc(r.posted_at || "unknown")}</span>
+          ${["send_as_is","worth_tailoring","failed"].includes(r.resumeState)
+            ? `<button class="xbtn" data-rebuild="${r.role_id}">rebuild resume</button>` : ""}</div>
       </div></div>`;
   }).join("");
 
   $("tbl").innerHTML = head + (rows || '<div class="loading">Nothing matches those filters.</div>');
+}
+
+// Ask for a fresh pass on a role that already has one. Re-queuing is the whole
+// mechanism: load_queue treats a role as handled only if its build is NEWER
+// than its last tick, so setting resume_queued_at = now() makes it eligible
+// again without deleting the resume we already have.
+async function rebuildResume(roleId, btn) {
+  const rec = DATA.roles.find(r => r.role_id === roleId);
+  if (!rec) return;
+  btn.disabled = true;
+  btn.textContent = "rebuilding…";
+  try {
+    const res = await fetch(
+      `${API}/mark?role=${roleId}&action=queued&token=${encodeURIComponent(TOKEN)}`);
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const started = (await res.text()).includes("Build: started");
+    rec.resumeState = started ? "queued" : "queued_overnight";
+    rec.resumeFile = null;
+    render();
+    if (started) pollResume(roleId);
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = "rebuild resume";
+    alert("Could not start a rebuild — " + e.message);
+  }
 }
 
 // ---- marking: fetch() straight to the database, no tab, instant ----
@@ -760,6 +787,8 @@ async function mark(btn){
 document.addEventListener("click", e => {
   const mk = e.target.closest(".mk");
   if (mk) { mark(mk); return; }
+  const rb = e.target.closest("[data-rebuild]");
+  if (rb) { rebuildResume(Number(rb.dataset.rebuild), rb); return; }
   const det = e.target.closest("[data-detail]");
   if (det) {
     const p = document.querySelector(`[data-panel="${det.dataset.detail}"]`);
