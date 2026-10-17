@@ -585,7 +585,10 @@ const RES_STATE = {
   not_queued:      ["",  "res",
     "Click to queue a resume for this role.\nThe overnight run decides whether to tailor it, and emails the result."],
   queued:          ["…", "res queued",
-    "QUEUED — the overnight run will handle this and email you the outcome.\nClick again to cancel."],
+    "BUILDING — started in the cloud, usually ready in 2-3 minutes.\nClick again to cancel."],
+  queued_overnight:["·", "res queued",
+    "QUEUED — but nothing started it, so it will be built by the 6:15am run.\n"
+    + "Instant builds need GH_DISPATCH_TOKEN set in Supabase.\nClick again to cancel."],
   send_as_is:      ["✓", "res asis",
     "SEND AS-IS — your existing resume already does the job here. No file needed."],
   worth_tailoring: ["✎", "res tailored",
@@ -734,11 +737,18 @@ async function mark(btn){
   try {
     const res = await fetch(`${API}/mark?role=${roleId}&action=${action}&token=${encodeURIComponent(TOKEN)}`);
     if (!res.ok) throw new Error("HTTP " + res.status);
+    const body = await res.text();
     rec[kind] = turningOn;
     if (kind === "applied" && turningOn) rec.backlog = false;   // server clears it too
     if (kind === "queued") {
-      rec.resumeState = turningOn ? "queued" : "not_queued";
-      if (turningOn) pollResume(roleId);
+      // The mark endpoint reports whether a cloud build actually started. Say
+      // which, rather than showing the same "queued" for both: a Campbell's
+      // role ticked 10-15 10:13am built at 10-16 6:29am, and for those twenty
+      // hours the cell looked identical to one building right now.
+      const started = body.includes("Build: started");
+      rec.resumeState = !turningOn ? "not_queued"
+                      : started ? "queued" : "queued_overnight";
+      if (turningOn && started) pollResume(roleId);
     }
     render();
   } catch (e) {
